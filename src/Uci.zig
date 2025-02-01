@@ -3,39 +3,71 @@ const ChessBoard = @import("ChessBoard.zig");
 const Uci = @This();
 const Move = ChessBoard.Move;
 
+gpa: std.mem.Allocator,
 engine_process: std.process.Child,
+promise: ?Promise(Move),
 
-pub fn connect(arena: std.mem.Allocator) !@This() {
-    const self_dir_path = try std.fs.selfExeDirPathAlloc(arena);
+pub fn connect(gpa: std.mem.Allocator) !@This() {
+    const self_dir_path = try std.fs.selfExeDirPathAlloc(gpa);
+    defer gpa.free(self_dir_path);
+    const full_path = try std.fs.path.join(gpa, &.{ self_dir_path, "stockfish" });
+    defer gpa.free(full_path);
 
     var child = std.process.Child.init(
-        &.{
-            try std.fs.path.join(arena, &.{ self_dir_path, "stockfish" }),
-        },
-        arena,
+        &.{full_path},
+        gpa,
     );
     child.stdin_behavior = .Pipe;
     child.stdout_behavior = .Pipe;
     try child.spawn();
 
     return .{
+        .gpa = gpa,
         .engine_process = child,
+        .promise = null,
     };
+}
+
+pub fn Promise(comptime T: type) type {
+    return union(enum) {
+        none,
+        done: T,
+
+        pub fn get(self: @This()) ?T {
+            return switch (self) {
+                .none => null,
+                .done => |t| t,
+            };
+        }
+    };
+}
+
+pub fn getMoveAsync(self: *@This()) !*Promise(Move) {
+    self.promise = .none;
+    const thread = try std.Thread.spawn(.{}, struct {
+        fn move(
+            _self: *Uci,
+            promise: *Promise(Move),
+        ) void {
+            promise.* = .{ .done = getMove(_self) catch @panic("Failed to get move") };
+        }
+    }.move, .{ self, &self.promise.? });
+    thread.detach();
+
+    return &self.promise.?;
 }
 
 pub fn getMove(self: *@This()) !Move {
     const reader = self.engine_process.stdout.?;
     var buffer: [0x1000]u8 = undefined;
     while (true) {
-        const bytes_read = try reader.read(buffer[0..]);
-        if (bytes_read == 0) return error.Empty;
-        const slice = buffer[0..bytes_read];
+        const line = try reader.reader().readUntilDelimiter(&buffer, '\n');
 
-        try std.io.getStdOut().writeAll(slice);
-        if (std.mem.startsWith(u8, slice, "bestmove ")) {
-            if (std.mem.startsWith(u8, slice, "bestmove (none)")) return error.EndOfGame;
+        try std.io.getStdOut().writer().print("<{s}>\n", .{line});
+        if (std.mem.startsWith(u8, line, "bestmove ")) {
+            if (std.mem.startsWith(u8, line, "bestmove (none)")) return error.EndOfGame;
 
-            const move = std.mem.trimRight(u8, slice["bestmove ".len..][0..], &std.ascii.whitespace);
+            const move = std.mem.trimRight(u8, line["bestmove ".len..][0..], &std.ascii.whitespace);
             std.log.info("Found move {s}", .{move});
 
             const piece: ?ChessBoard.Piece = if (move.len >= 5 and std.ascii.isAlphabetic(move[4]))

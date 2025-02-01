@@ -24,6 +24,24 @@ fn rectFromPositionAndSize(pos: rl.Vector2, size: rl.Vector2) rl.Rectangle {
     };
 }
 
+fn drawPiece(@"type": ChessBoard.PieceWithSide, pos: rl.Vector2, size: rl.Vector2, atlas: rl.Texture) void {
+    atlas.drawPro(
+        .{
+            .x = pieceIndexInAtlas(@"type".piece) * 16,
+            .y = 0,
+            .width = 16,
+            .height = 16,
+        },
+        rectFromPositionAndSize(
+            pos,
+            size,
+        ),
+        .init(0, 0),
+        0,
+        if (@"type".side == .white) .white else .yellow,
+    );
+}
+
 fn drawChessBoard(board: ChessBoard, center: rl.Vector2, size: f32, padding: f32, atlas: rl.Texture) void {
     const cell_size = size / 8;
     var y: f32 = center.y - size / 2;
@@ -38,20 +56,11 @@ fn drawChessBoard(board: ChessBoard, center: rl.Vector2, size: f32, padding: f32
             const top_left_pos: rl.Vector2 = .init(x, y);
 
             if (cell) |piece_with_side| {
-                atlas.drawPro(
-                    .{
-                        .x = pieceIndexInAtlas(piece_with_side.piece) * 16,
-                        .y = 0,
-                        .width = 16,
-                        .height = 16,
-                    },
-                    rectFromPositionAndSize(
-                        top_left_pos.addValue(padding),
-                        .init(cell_size - padding, cell_size - padding),
-                    ),
-                    .init(0, 0),
-                    0,
-                    if (piece_with_side.side == .white) .white else .yellow,
+                drawPiece(
+                    piece_with_side,
+                    top_left_pos.addValue(padding),
+                    .init(cell_size - padding, cell_size - padding),
+                    atlas,
                 );
             } else {
                 rl.drawRectangleV(
@@ -63,6 +72,31 @@ fn drawChessBoard(board: ChessBoard, center: rl.Vector2, size: f32, padding: f32
         }
     }
 }
+
+const Animation = struct {
+    piece: ChessBoard.PieceWithSide,
+    move: ChessBoard.Move,
+    // range [0;1]
+    progress: f32,
+
+    pub fn position(anim: @This()) rl.Vector2 {
+        // const t = anim.progress;
+        const x = anim.progress;
+        const t = if (x < 0.5) 4 * x * x * x else 1 - std.math.pow(f32, -2 * x + 2, 3) / 2;
+
+        const from_row_f: f32 = @floatFromInt(anim.move.from.row);
+        const from_file_f: f32 = @floatFromInt(anim.move.from.file);
+        const to_row_f: f32 = @floatFromInt(anim.move.to.row);
+        const to_file_f: f32 = @floatFromInt(anim.move.to.file);
+
+        const result_row = std.math.lerp(from_row_f, to_row_f, t);
+        const result_file = std.math.lerp(from_file_f, to_file_f, t);
+        return .{
+            .y = 7 - result_row,
+            .x = result_file,
+        };
+    }
+};
 
 pub fn doChess(_: std.mem.Allocator, uci: *Uci) !void {
     rl.setConfigFlags(.{
@@ -76,8 +110,36 @@ pub fn doChess(_: std.mem.Allocator, uci: *Uci) !void {
     defer chess_figures.unload();
 
     var board: ChessBoard = .init;
-    var timer = try std.time.Timer.start();
+    var move: ?*Uci.Promise(ChessBoard.Move) = null;
+    var animation: ?Animation = null;
     while (!rl.windowShouldClose()) {
+        if (animation) |*anim| {
+            if (anim.progress >= 1) {
+                board.applyMove(anim.move);
+                animation = null;
+            } else {
+                anim.progress += rl.getFrameTime();
+            }
+        } else if (move) |state| {
+            if (state.get()) |result| {
+                animation = Animation{
+                    .piece = board.get(result.from).*.?,
+                    .move = result,
+                    .progress = 0,
+                };
+                move = null;
+            }
+        } else {
+            try uci.setPosition(board);
+            try uci.go(9);
+            move = uci.getMoveAsync() catch |e| {
+                if (e == error.EndOfGame) {
+                    std.log.info("End of game {s} won", .{@tagName(board.turn.next())});
+                    break;
+                }
+                continue;
+            };
+        }
         {
             rl.beginDrawing();
             defer rl.endDrawing();
@@ -85,20 +147,22 @@ pub fn doChess(_: std.mem.Allocator, uci: *Uci) !void {
 
             const padding = 10;
             const side_length = @min(rlx.getScreenHeightf(), rlx.getScreenWidthf());
-            drawChessBoard(board, rlx.getScreenCenter(), side_length, padding, chess_figures);
-        }
-        if (timer.read() > std.time.ns_per_s * 1) {
-            timer.reset();
-            try uci.setPosition(board);
-            try uci.go(5);
-            const move = uci.getMove() catch |e| {
-                if (e == error.EndOfGame) {
-                    std.log.info("End of game {s} won", .{@tagName(board.turn.next())});
-                    break;
-                }
-                continue;
-            };
-            board.applyMove(move);
+            const cell_size = side_length / 8;
+            const center = rlx.getScreenCenter();
+            if (animation) |anim| {
+                var board_to_draw = board;
+                board_to_draw.get(anim.move.from).* = null;
+                drawChessBoard(board_to_draw, center, side_length, padding, chess_figures);
+                drawPiece(
+                    anim.piece,
+                    anim.position().scale(cell_size).addValue(padding),
+                    .init(cell_size - padding, cell_size - padding),
+                    chess_figures,
+                );
+            } else {
+                drawChessBoard(board, center, side_length, padding, chess_figures);
+            }
+            rl.drawFPS(0, 0);
         }
     }
 }

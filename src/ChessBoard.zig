@@ -11,16 +11,20 @@ can_castle: std.EnumArray(Side, struct {
 }),
 
 pub const Move = struct {
-    from: ChessBoard.Position,
-    to: ChessBoard.Position,
-    promotion: ?ChessBoard.Piece,
+    from: Position,
+    to: Position,
+    promotion: ?Piece,
 };
+
+pub fn get(board: *ChessBoard, pos: Position) *?PieceWithSide {
+    return &board.cells[7 - pos.row][pos.file];
+}
 
 pub fn applyMove(board: *ChessBoard, move: Move) void {
     std.debug.assert(!std.meta.eql(move.from, move.to));
 
-    const from = &board.cells[7 - move.from.row][move.from.file];
-    const to = &board.cells[7 - move.to.row][move.to.file];
+    const from = board.get(move.from);
+    const to = board.get(move.to);
     if (from.*.?.piece == .king) {
         const distance = @max(move.from.file, move.to.file) - @min(move.from.file, move.to.file);
         if (distance == 2) { // its castle
