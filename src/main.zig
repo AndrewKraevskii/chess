@@ -55,18 +55,17 @@ fn drawChessBoard(board: ChessBoard, center: rl.Vector2, size: f32, padding: f32
             defer parity +%= 1;
             const top_left_pos: rl.Vector2 = .init(x, y);
 
+            rl.drawRectangleV(
+                top_left_pos.addValue(padding),
+                .init(cell_size - padding, cell_size - padding),
+                if (parity == 0) .black else .white,
+            );
             if (cell) |piece_with_side| {
                 drawPiece(
                     piece_with_side,
                     top_left_pos.addValue(padding),
                     .init(cell_size - padding, cell_size - padding),
                     atlas,
-                );
-            } else {
-                rl.drawRectangleV(
-                    top_left_pos.addValue(padding),
-                    .init(cell_size - padding, cell_size - padding),
-                    if (parity == 0) .black else .white,
                 );
             }
         }
@@ -110,7 +109,8 @@ pub fn doChess(_: std.mem.Allocator, uci: *Uci) !void {
     defer chess_figures.unload();
 
     var board: ChessBoard = .init;
-    var move: ?*Uci.Promise(ChessBoard.Move) = null;
+    var move: ?*Uci.MovePromise = null;
+    const animation_speed: f32 = 10;
     var animation: ?Animation = null;
     while (!rl.windowShouldClose()) {
         if (animation) |*anim| {
@@ -118,29 +118,29 @@ pub fn doChess(_: std.mem.Allocator, uci: *Uci) !void {
                 board.applyMove(anim.move);
                 animation = null;
             } else {
-                anim.progress += rl.getFrameTime();
+                anim.progress += rl.getFrameTime() * animation_speed;
             }
         } else if (move) |state| {
             if (state.get()) |result| {
-                animation = Animation{
-                    .piece = board.get(result.from).*.?,
-                    .move = result,
-                    .progress = 0,
-                };
-                move = null;
+                if (result) |m| {
+                    animation = Animation{
+                        .piece = board.get(m.from).*.?,
+                        .move = m,
+                        .progress = 0,
+                    };
+                    move = null;
+                }
+            } else |_| {
+                std.log.info("End of game {s} won", .{@tagName(board.turn.next())});
+                break;
             }
         } else {
             try uci.setPosition(board);
-            try uci.go(9);
-            move = uci.getMoveAsync() catch |e| {
-                if (e == error.EndOfGame) {
-                    std.log.info("End of game {s} won", .{@tagName(board.turn.next())});
-                    break;
-                }
-                continue;
-            };
+            try uci.go(3);
+            move = try uci.getMoveAsync();
         }
-        {
+
+        { // draw
             rl.beginDrawing();
             defer rl.endDrawing();
             rl.clearBackground(.black);
@@ -162,7 +162,6 @@ pub fn doChess(_: std.mem.Allocator, uci: *Uci) !void {
             } else {
                 drawChessBoard(board, center, side_length, padding, chess_figures);
             }
-            rl.drawFPS(0, 0);
         }
     }
 }

@@ -5,7 +5,7 @@ const Move = ChessBoard.Move;
 
 gpa: std.mem.Allocator,
 engine_process: std.process.Child,
-promise: ?Promise(Move),
+promise: ?MovePromise,
 
 pub fn connect(gpa: std.mem.Allocator) !@This() {
     const self_dir_path = try std.fs.selfExeDirPathAlloc(gpa);
@@ -32,24 +32,31 @@ pub fn Promise(comptime T: type) type {
     return union(enum) {
         none,
         done: T,
+        err,
 
-        pub fn get(self: @This()) ?T {
+        pub fn get(self: @This()) !?T {
             return switch (self) {
                 .none => null,
                 .done => |t| t,
+                .err => error.EndOfGame,
             };
         }
     };
 }
 
-pub fn getMoveAsync(self: *@This()) !*Promise(Move) {
+pub const MovePromise = Promise(Move);
+
+pub fn getMoveAsync(self: *@This()) std.Thread.SpawnError!*MovePromise {
     self.promise = .none;
     const thread = try std.Thread.spawn(.{}, struct {
         fn move(
             _self: *Uci,
-            promise: *Promise(Move),
+            promise: *MovePromise,
         ) void {
-            promise.* = .{ .done = getMove(_self) catch @panic("Failed to get move") };
+            promise.* = if (getMove(_self)) |_move|
+                .{ .done = _move }
+            else |_|
+                .err;
         }
     }.move, .{ self, &self.promise.? });
     thread.detach();
