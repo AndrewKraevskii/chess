@@ -70,12 +70,10 @@ pub fn getMove(self: *@This()) !Move {
     while (true) {
         const line = try reader.reader().readUntilDelimiter(&buffer, '\n');
 
-        try std.io.getStdOut().writer().print("<{s}>\n", .{line});
         if (std.mem.startsWith(u8, line, "bestmove ")) {
             if (std.mem.startsWith(u8, line, "bestmove (none)")) return error.EndOfGame;
 
             const move = std.mem.trimRight(u8, line["bestmove ".len..][0..], &std.ascii.whitespace);
-            std.log.info("Found move {s}", .{move});
 
             const piece: ?ChessBoard.Piece = if (move.len >= 5 and std.ascii.isAlphabetic(move[4]))
                 ChessBoard.PieceWithSide.fromChar(move[4]).?.piece
@@ -102,28 +100,45 @@ pub fn setPosition(self: *@This(), board: ChessBoard) !void {
     try std.io.getStdOut().writer().writeAll("\n");
 }
 
-pub fn quit(self: *@This()) void {
-    self.engine_process.stdin.?.writeAll("quit\n") catch |e| {
-        std.log.err("failed to close engine: {s}", .{@errorName(e)});
-        std.log.err("killing engine", .{});
-
-        _ = self.engine_process.kill() catch |ke| {
-            std.debug.panic("failed to kill engine {s}", .{@errorName(ke)});
-        };
-        return;
-    };
-
+pub fn quit(self: *@This()) !void {
+    if (self.engine_process.stdin) |stdin| {
+        try stdin.writeAll("quit\n");
+    }
     std.log.info("quit engine", .{});
 }
 
-pub fn go(self: *@This(), depth: u8) !void {
-    try self.engine_process.stdin.?.writer().print("go depth {d}\n", .{depth});
+const GoConfig = struct {
+    searchmoves: []const Move = &.{},
+    ponde: void = {},
+    wtime: void = {},
+    btime: void = {},
+    winc: void = {},
+    binc: void = {},
+    movestogo: void = {},
+    depth: u8,
+    nodes: void = {},
+    mate: void = {},
+    movetime: void = {},
+    infinit: void = {},
+};
+
+pub fn go(self: *@This(), config: GoConfig) !void {
+    try self.engine_process.stdin.?.writer().print("go depth {d}\n", .{config.depth});
 }
 
-pub fn deinit(uci: *Uci) !void {
-    uci.quit();
+pub fn close(uci: *Uci) !void {
+    try uci.quit();
+}
 
-    if (try uci.engine_process.wait() != .Exited) {
-        return error.FailedToExit;
+test {
+    var uci = try connect(std.testing.allocator);
+    defer uci.close() catch {};
+
+    var board: ChessBoard = .init;
+    while (true) {
+        try uci.setPosition(board);
+        try uci.go(.{ .depth = 3 });
+        const move = try uci.getMove();
+        board.applyMove(move);
     }
 }

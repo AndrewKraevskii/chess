@@ -13,7 +13,21 @@ can_castle: std.EnumArray(Side, struct {
 pub const Move = struct {
     from: Position,
     to: Position,
-    promotion: ?Piece,
+    promotion: ?Piece = null,
+
+    pub fn parse(str: []const u8) Move {
+        std.debug.assert(str.len == 4 or str.len == 5);
+        var move: Move = .{
+            .from = .fromString(str[0..2]),
+            .to = .fromString(str[0..2]),
+        };
+
+        if (std.len == 5) {
+            move = PieceWithSide.fromChar(str[4]).?.piece;
+        }
+
+        return move;
+    }
 };
 
 pub fn get(board: *ChessBoard, pos: Position) *?PieceWithSide {

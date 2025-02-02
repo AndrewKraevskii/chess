@@ -136,7 +136,7 @@ pub fn doChess(_: std.mem.Allocator, uci: *Uci) !void {
             }
         } else {
             try uci.setPosition(board);
-            try uci.go(3);
+            try uci.go(.{ .depth = 3 });
             move = try uci.getMoveAsync();
         }
 
@@ -180,15 +180,16 @@ pub fn main() !void {
     defer _ = arena.deinit();
     const alloc = arena.allocator();
 
-    // const thread = try std.Thread.spawn(.{}, WatchDog.watch, .{});
-    // thread.detach();
-
     var uci = try Uci.connect(alloc);
-    defer uci.deinit() catch |e| {
+    defer uci.close() catch |e| {
         std.log.err("can't deinit engine: {s}", .{@errorName(e)});
     };
     try doChess(
         alloc,
         &uci,
     );
+}
+
+test {
+    _ = @import("Uci.zig");
 }
