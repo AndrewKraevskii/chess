@@ -155,7 +155,7 @@ pub fn doChess(_: std.mem.Allocator, uci: *Uci) !void {
                 drawChessBoard(board_to_draw, center, side_length, padding, chess_figures);
                 drawPiece(
                     anim.piece,
-                    anim.position().scale(cell_size).addValue(padding),
+                    anim.position().scale(cell_size).addValue(padding).add(center).subtractValue(side_length / 2),
                     .init(cell_size - padding, cell_size - padding),
                     chess_figures,
                 );
