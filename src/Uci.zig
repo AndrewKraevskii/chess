@@ -3,26 +3,23 @@ const ChessBoard = @import("ChessBoard.zig");
 const Uci = @This();
 const Move = ChessBoard.Move;
 
-gpa: std.mem.Allocator,
 engine_process: std.process.Child,
 promise: ?MovePromise,
 
-pub fn connect(gpa: std.mem.Allocator) !@This() {
-    const self_dir_path = try std.fs.selfExeDirPathAlloc(gpa);
-    defer gpa.free(self_dir_path);
-    const full_path = try std.fs.path.join(gpa, &.{ self_dir_path, "stockfish" });
-    defer gpa.free(full_path);
+pub fn connect(arena: std.mem.Allocator, engine_path: []const u8) !@This() {
+    // memporary fix. Need to use std.process.Child.waitForSpawn when upgraded
+    // to 0.14.0
+    _ = std.fs.cwd().statFile(engine_path) catch return error.EngineNotFound;
 
     var child = std.process.Child.init(
-        &.{full_path},
-        gpa,
+        &.{engine_path},
+        arena,
     );
     child.stdin_behavior = .Pipe;
     child.stdout_behavior = .Pipe;
     try child.spawn();
 
     return .{
-        .gpa = gpa,
         .engine_process = child,
         .promise = null,
     };
@@ -95,9 +92,6 @@ pub fn setPosition(self: *@This(), board: ChessBoard) !void {
     try writer.writeAll("position fen ");
     try board.writeFen(writer.writer());
     try writer.writeAll("\n");
-
-    try board.writeFen(std.io.getStdOut().writer());
-    try std.io.getStdOut().writer().writeAll("\n");
 }
 
 pub fn quit(self: *@This()) !void {
@@ -108,18 +102,18 @@ pub fn quit(self: *@This()) !void {
 }
 
 const GoConfig = struct {
-    searchmoves: []const Move = &.{},
-    ponde: void = {},
-    wtime: void = {},
-    btime: void = {},
-    winc: void = {},
-    binc: void = {},
-    movestogo: void = {},
+    // searchmoves: []const Move = &.{},
+    // ponde: void = {},
+    // wtime: void = {},
+    // btime: void = {},
+    // winc: void = {},
+    // binc: void = {},
+    // movestogo: void = {},
     depth: u8,
-    nodes: void = {},
-    mate: void = {},
-    movetime: void = {},
-    infinit: void = {},
+    // nodes: void = {},
+    // mate: void = {},
+    // movetime: void = {},
+    // infinit: void = {},
 };
 
 pub fn go(self: *@This(), config: GoConfig) !void {
@@ -131,14 +125,22 @@ pub fn close(uci: *Uci) !void {
 }
 
 test {
-    var uci = try connect(std.testing.allocator);
+    const args = @import("args");
+
+    var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena_state.deinit();
+
+    var uci = try connect(arena_state.allocator(), args.engine_path);
     defer uci.close() catch {};
 
     var board: ChessBoard = .init;
     while (true) {
         try uci.setPosition(board);
         try uci.go(.{ .depth = 3 });
-        const move = try uci.getMove();
+        const move = uci.getMove() catch |e| switch (e) {
+            error.EndOfGame => break,
+            else => |others| return others,
+        };
         board.applyMove(move);
     }
 }

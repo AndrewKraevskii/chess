@@ -17,6 +17,7 @@ pub const Move = struct {
 
     pub fn parse(str: []const u8) Move {
         std.debug.assert(str.len == 4 or str.len == 5);
+
         var move: Move = .{
             .from = .fromString(str[0..2]),
             .to = .fromString(str[0..2]),

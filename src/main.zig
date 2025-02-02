@@ -42,14 +42,14 @@ fn drawPiece(@"type": ChessBoard.PieceWithSide, pos: rl.Vector2, size: rl.Vector
     );
 }
 
-fn drawChessBoard(board: ChessBoard, center: rl.Vector2, size: f32, padding: f32, atlas: rl.Texture) void {
-    const cell_size = size / 8;
-    var y: f32 = center.y - size / 2;
+fn drawChessBoard(board: ChessBoard, dest: rl.Rectangle, padding: f32, atlas: rl.Texture) void {
+    const cell_size = dest.width / 8;
+    var y: f32 = dest.y;
     var parity: u1 = 0;
     for (board.cells) |row| {
         defer y += cell_size;
         defer parity +%= 1;
-        var x: f32 = center.x - size / 2;
+        var x: f32 = dest.x;
         for (row) |cell| {
             defer x += cell_size;
             defer parity +%= 1;
@@ -102,6 +102,7 @@ pub fn doChess(_: std.mem.Allocator, uci: *Uci) !void {
         .window_resizable = true,
     });
     rl.setTraceLogLevel(.log_none);
+
     rl.initWindow(1000, 1000, "Chess");
     defer rl.closeWindow();
 
@@ -112,6 +113,7 @@ pub fn doChess(_: std.mem.Allocator, uci: *Uci) !void {
     var move: ?*Uci.MovePromise = null;
     const animation_speed: f32 = 10;
     var animation: ?Animation = null;
+
     while (!rl.windowShouldClose()) {
         if (animation) |*anim| {
             if (anim.progress >= 1) {
@@ -136,7 +138,7 @@ pub fn doChess(_: std.mem.Allocator, uci: *Uci) !void {
             }
         } else {
             try uci.setPosition(board);
-            try uci.go(.{ .depth = 3 });
+            try uci.go(.{ .depth = 4 });
             move = try uci.getMoveAsync();
         }
 
@@ -152,7 +154,7 @@ pub fn doChess(_: std.mem.Allocator, uci: *Uci) !void {
             if (animation) |anim| {
                 var board_to_draw = board;
                 board_to_draw.get(anim.move.from).* = null;
-                drawChessBoard(board_to_draw, center, side_length, padding, chess_figures);
+                drawChessBoard(board_to_draw, rlx.screenSquare(), padding, chess_figures);
                 drawPiece(
                     anim.piece,
                     anim.position().scale(cell_size).addValue(padding).add(center).subtractValue(side_length / 2),
@@ -160,7 +162,7 @@ pub fn doChess(_: std.mem.Allocator, uci: *Uci) !void {
                     chess_figures,
                 );
             } else {
-                drawChessBoard(board, center, side_length, padding, chess_figures);
+                drawChessBoard(board, rlx.screenSquare(), padding, chess_figures);
             }
         }
     }
@@ -180,7 +182,11 @@ pub fn main() !void {
     defer _ = arena.deinit();
     const alloc = arena.allocator();
 
-    var uci = try Uci.connect(alloc);
+    const self_path = try std.fs.selfExeDirPathAlloc(alloc);
+    const engine_path = try std.fs.path.join(alloc, &.{ self_path, "stockfish" });
+
+    std.log.debug("{s}", .{engine_path});
+    var uci = try Uci.connect(alloc, engine_path);
     defer uci.close() catch |e| {
         std.log.err("can't deinit engine: {s}", .{@errorName(e)});
     };
