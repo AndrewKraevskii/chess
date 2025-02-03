@@ -45,7 +45,7 @@ fn drawPiece(@"type": ChessBoard.PieceWithSide, pos: rl.Vector2, size: rl.Vector
 fn drawChessBoard(board: ChessBoard, dest: rl.Rectangle, padding: f32, atlas: rl.Texture) void {
     const cell_size = dest.width / 8;
     var y: f32 = dest.y;
-    var parity: u1 = 0;
+    var parity: u1 = 1;
     for (board.cells) |row| {
         defer y += cell_size;
         defer parity +%= 1;
@@ -114,34 +114,41 @@ pub fn doChess(_: std.mem.Allocator, uci: *Uci) !void {
     const animation_speed: f32 = 10;
     var animation: ?Animation = null;
 
+    var paused: bool = false;
+
     while (!rl.windowShouldClose()) {
-        if (animation) |*anim| {
-            if (anim.progress >= 1) {
-                board.applyMove(anim.move);
-                animation = null;
-            } else {
-                anim.progress += rl.getFrameTime() * animation_speed;
-            }
-        } else if (move) |state| {
-            if (state.get()) |result| {
-                if (result) |m| {
-                    animation = Animation{
-                        .piece = board.get(m.from).*.?,
-                        .move = m,
-                        .progress = 0,
-                    };
-                    move = null;
-                }
-            } else |_| {
-                std.log.info("End of game {s} won", .{@tagName(board.turn.next())});
-                break;
-            }
-        } else {
-            try uci.setPosition(board);
-            try uci.go(.{ .depth = 4 });
-            move = try uci.getMoveAsync();
+        if (rl.isKeyPressed(.key_space)) {
+            paused = !paused;
         }
 
+        if (!paused) {
+            if (animation) |*anim| {
+                if (anim.progress >= 1) {
+                    board.applyMove(anim.move);
+                    animation = null;
+                } else {
+                    anim.progress += rl.getFrameTime() * animation_speed;
+                }
+            } else if (move) |state| {
+                if (state.get()) |result| {
+                    if (result) |m| {
+                        animation = Animation{
+                            .piece = board.get(m.from).*.?,
+                            .move = m,
+                            .progress = 0,
+                        };
+                        move = null;
+                    }
+                } else |_| {
+                    std.log.info("End of game {s} won", .{@tagName(board.turn.next())});
+                    break;
+                }
+            } else {
+                try uci.setPosition(board);
+                try uci.go(.{ .depth = 4 });
+                move = try uci.getMoveAsync();
+            }
+        }
         { // draw
             rl.beginDrawing();
             defer rl.endDrawing();
