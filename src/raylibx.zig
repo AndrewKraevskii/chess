@@ -31,3 +31,22 @@ pub fn screenSquare() rl.Rectangle {
         .height = side_length,
     };
 }
+
+pub fn scaleRectangleFromCenter(rect: rl.Rectangle, scale: f32) rl.Rectangle {
+    const center = getRectangleCenter(rect);
+    return .{
+        .x = (rect.x - center.x) * scale + center.x,
+        .y = (rect.y - center.y) * scale + center.y,
+        .width = rect.width * scale,
+        .height = rect.height * scale,
+    };
+}
+
+pub fn moveRectangle(rect: rl.Rectangle, vec: rl.Vector2) rl.Rectangle {
+    return .{
+        .x = rect.x + vec.x,
+        .y = rect.y + vec.y,
+        .width = rect.width,
+        .height = rect.height,
+    };
+}

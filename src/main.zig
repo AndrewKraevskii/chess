@@ -1,5 +1,6 @@
 const std = @import("std");
 const rl = @import("raylib");
+const gui = @import("raygui");
 const ChessBoard = @import("ChessBoard.zig");
 const rlx = @import("raylibx.zig");
 const Uci = @import("Uci.zig");
@@ -24,28 +25,34 @@ fn rectFromPositionAndSize(pos: rl.Vector2, size: rl.Vector2) rl.Rectangle {
     };
 }
 
-fn drawPiece(@"type": ChessBoard.PieceWithSide, pos: rl.Vector2, size: rl.Vector2, atlas: rl.Texture) void {
-    atlas.drawPro(
+fn drawPiece(@"type": ChessBoard.PieceWithSide, dest: rl.Rectangle, style: ChessBoardDisplayStyle) void {
+    style.atlas.drawPro(
         .{
             .x = pieceIndexInAtlas(@"type".piece) * 16,
             .y = 0,
             .width = 16,
             .height = 16,
         },
-        rectFromPositionAndSize(
-            pos,
-            size,
-        ),
+        dest,
         .init(0, 0),
         0,
         if (@"type".side == .white) .white else .yellow,
     );
 }
 
-fn drawChessBoard(board: ChessBoard, dest: rl.Rectangle, padding: f32, atlas: rl.Texture) void {
+const ChessBoardDisplayStyle = struct {
+    padding: f32,
+    atlas: rl.Texture,
+    white_square_color: rl.Color,
+    black_square_color: rl.Color,
+    border_color: rl.Color,
+};
+
+fn drawChessBoard(board: ChessBoard, dest: rl.Rectangle, style: ChessBoardDisplayStyle) void {
     const cell_size = dest.width / 8;
     var y: f32 = dest.y;
     var parity: u1 = 1;
+    rl.drawRectangleRec(dest, style.border_color);
     for (board.cells) |row| {
         defer y += cell_size;
         defer parity +%= 1;
@@ -56,16 +63,18 @@ fn drawChessBoard(board: ChessBoard, dest: rl.Rectangle, padding: f32, atlas: rl
             const top_left_pos: rl.Vector2 = .init(x, y);
 
             rl.drawRectangleV(
-                top_left_pos.addValue(padding),
-                .init(cell_size - padding, cell_size - padding),
-                if (parity == 0) .black else .white,
+                top_left_pos.addValue(style.padding / 2),
+                .init(cell_size - style.padding, cell_size - style.padding),
+                if (parity == 0) style.black_square_color else style.white_square_color,
             );
             if (cell) |piece_with_side| {
                 drawPiece(
                     piece_with_side,
-                    top_left_pos.addValue(padding),
-                    .init(cell_size - padding, cell_size - padding),
-                    atlas,
+                    rectFromPositionAndSize(
+                        top_left_pos.addValue(style.padding / 2),
+                        .init(cell_size - style.padding, cell_size - style.padding),
+                    ),
+                    style,
                 );
             }
         }
@@ -81,7 +90,7 @@ const Animation = struct {
     pub fn position(anim: @This()) rl.Vector2 {
         // const t = anim.progress;
         const x = anim.progress;
-        const t = if (x < 0.5) 4 * x * x * x else 1 - std.math.pow(f32, -2 * x + 2, 3) / 2;
+        const t = @import("easing.zig").easeInOutQubic(x);
 
         const from_row_f: f32 = @floatFromInt(anim.move.from.row);
         const from_file_f: f32 = @floatFromInt(anim.move.from.file);
@@ -91,8 +100,8 @@ const Animation = struct {
         const result_row = std.math.lerp(from_row_f, to_row_f, t);
         const result_file = std.math.lerp(from_file_f, to_file_f, t);
         return .{
-            .y = 7 - result_row,
-            .x = result_file,
+            .y = (7 - result_row) / 8,
+            .x = (result_file) / 8,
         };
     }
 };
@@ -109,9 +118,16 @@ pub fn doChess(_: std.mem.Allocator, uci: *Uci) !void {
     const chess_figures = rl.loadTexture("assets/chess_figures.png");
     defer chess_figures.unload();
 
+    const style: ChessBoardDisplayStyle = .{
+        .padding = 4,
+        .white_square_color = .white,
+        .black_square_color = .black,
+        .atlas = chess_figures,
+        .border_color = .blue,
+    };
     var board: ChessBoard = .init;
     var move: ?*Uci.MovePromise = null;
-    const animation_speed: f32 = 10;
+    var animation_speed: f32 = 0.1;
     var animation: ?Animation = null;
 
     var paused: bool = false;
@@ -122,7 +138,7 @@ pub fn doChess(_: std.mem.Allocator, uci: *Uci) !void {
         }
 
         if (!paused) {
-            if (animation) |*anim| {
+            if (animation) |*anim| { // update
                 if (anim.progress >= 1) {
                     board.applyMove(anim.move);
                     animation = null;
@@ -154,35 +170,40 @@ pub fn doChess(_: std.mem.Allocator, uci: *Uci) !void {
             defer rl.endDrawing();
             rl.clearBackground(.black);
 
-            const padding = 10;
             const side_length = @min(rlx.getScreenHeightf(), rlx.getScreenWidthf());
             const cell_size = side_length / 8;
             const center = rlx.getScreenCenter();
             if (animation) |anim| {
                 var board_to_draw = board;
                 board_to_draw.get(anim.move.from).* = null;
-                drawChessBoard(board_to_draw, rlx.screenSquare(), padding, chess_figures);
+                drawChessBoard(
+                    board_to_draw,
+                    rlx.screenSquare(),
+                    style,
+                );
                 drawPiece(
                     anim.piece,
-                    anim.position().scale(cell_size).addValue(padding).add(center).subtractValue(side_length / 2),
-                    .init(cell_size - padding, cell_size - padding),
-                    chess_figures,
+                    rectFromPositionAndSize(
+                        anim.position().scale(side_length).addValue(style.padding / 2).add(center).subtractValue(side_length / 2),
+                        .init(cell_size - style.padding, cell_size - style.padding),
+                    ),
+                    style,
                 );
             } else {
-                drawChessBoard(board, rlx.screenSquare(), padding, chess_figures);
+                drawChessBoard(board, rlx.screenSquare(), style);
+            }
+            // gui
+            {
+                _ = gui.guiSlider(.{
+                    .x = 0,
+                    .y = 0,
+                    .width = 100,
+                    .height = 10,
+                }, "Speed", "", &animation_speed, 0.01, 10);
             }
         }
     }
 }
-
-/// I need it since sometimes program freezes my desktop manager and I can't kill it.
-const WatchDog = struct {
-    pub fn watch() void {
-        std.time.sleep(std.time.ns_per_s * 10);
-        std.log.info("watchdog closes application due to timeout", .{});
-        std.process.exit(0);
-    }
-};
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
