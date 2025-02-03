@@ -90,7 +90,7 @@ const Animation = struct {
     pub fn position(anim: @This()) rl.Vector2 {
         // const t = anim.progress;
         const x = anim.progress;
-        const t = @import("easing.zig").easeInOutQubic(x);
+        const t = @import("easing.zig").easeInOutCubic(x);
 
         const from_row_f: f32 = @floatFromInt(anim.move.from.row);
         const from_file_f: f32 = @floatFromInt(anim.move.from.file);
