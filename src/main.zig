@@ -128,7 +128,45 @@ const Animation = struct {
     }
 };
 
-pub fn doChess(_: std.mem.Allocator, uci: *Uci) !void {
+pub fn History(comptime Item: type, comptime Size: usize) type {
+    return struct {
+        events: std.BoundedArray(Item, Size) = .{},
+        undone: usize = 0,
+
+        pub fn undo(history: *@This()) ?Item {
+            std.debug.assert(history.undone <= history.events.len);
+            if (history.undone == history.events.len) {
+                return null;
+            }
+            history.undone += 1;
+
+            return history.events.get(history.events.len - history.undone);
+        }
+
+        pub fn redo(history: *@This()) ?Item {
+            if (history.undone == 0) return null;
+            const event_to_redo = history.events.get(history.events.len - history.undone);
+            history.undone -= 1;
+            return event_to_redo;
+        }
+
+        pub fn addHistoryEntry(
+            history: *@This(),
+            entry: Item,
+        ) !void {
+            if (history.undone != 0) {
+                history.events.resize(history.events.len - history.undone) catch unreachable;
+                history.undone = 0;
+            }
+
+            try history.events.append(
+                entry,
+            );
+        }
+    };
+}
+
+pub fn doChess(uci: *Uci) !void {
     rl.setConfigFlags(.{
         .window_resizable = true,
     });
@@ -149,11 +187,16 @@ pub fn doChess(_: std.mem.Allocator, uci: *Uci) !void {
         .atlas = chess_figures,
         .border_color = .blue,
     };
-    var board: ChessBoard = .init;
-    var move: ?*Uci.MovePromise = null;
-    var animation_speed: f32 = 0.1;
-    var animation: ?Animation = null;
+    var animation_speed: f32 = 1;
 
+    // var history: std.BoundedArray(ChessBoard, 0x200) = .{};
+    // var undone: usize = 0;
+    var history: History(ChessBoard, 0x200) = .{};
+    var board: ChessBoard = .init;
+
+    var engine_async_move: ?*Uci.MovePromise = null;
+
+    var animation: ?Animation = null;
     var paused: bool = false;
 
     var whos_turn: union(enum) {
@@ -188,15 +231,15 @@ pub fn doChess(_: std.mem.Allocator, uci: *Uci) !void {
                     anim.progress += rl.getFrameTime() * animation_speed;
                 }
             } else switch (whos_turn) {
-                .engine => if (move) |state| {
+                .engine => if (engine_async_move) |state| {
                     if (state.get()) |result| {
                         if (result) |m| {
-                            animation = Animation{
+                            animation = .{
                                 .piece = board.get(m.from).*.?,
                                 .move = m,
                                 .progress = 0,
                             };
-                            move = null;
+                            engine_async_move = null;
                         }
                     } else |_| {
                         std.log.info("End of game {s} won", .{@tagName(board.turn.next())});
@@ -204,10 +247,19 @@ pub fn doChess(_: std.mem.Allocator, uci: *Uci) !void {
                     }
                 } else {
                     try uci.setPosition(board);
-                    try uci.go(.{ .depth = 4 });
-                    move = try uci.getMoveAsync();
+                    try uci.go(.{ .depth = 1 });
+                    engine_async_move = try uci.getMoveAsync();
                 },
                 .player => |*p| player: {
+                    if (rl.isKeyPressed(.key_u)) undo: {
+                        board = history.undo() orelse break :undo;
+                        break :player;
+                    }
+                    if (rl.isKeyPressed(.key_r)) redo: {
+                        board = history.redo() orelse break :redo;
+                        break :player;
+                    }
+
                     const mouse_pos = rl.getMousePosition();
                     if (!rl.checkCollisionPointRec(mouse_pos, rlx.screenSquare())) break :player;
                     const normalized = rlx.normalizeInRectangle(rlx.screenSquare(), mouse_pos);
@@ -223,11 +275,29 @@ pub fn doChess(_: std.mem.Allocator, uci: *Uci) !void {
                     if (rl.isMouseButtonPressed(.mouse_button_left)) {
                         if (p.selected_square) |selected| {
                             if (!std.meta.eql(selected, p.hovered_square.?)) {
-                                board.applyMove(.{ .from = selected, .to = p.hovered_square.? });
-                                whos_turn = .engine;
+                                if (board.get(p.hovered_square.?).*) |piece| {
+                                    if (piece.side == .black) {
+                                        p.selected_square = p.hovered_square;
+                                        break :player;
+                                    }
+                                }
+                                if (board.isMovePossible(selected, p.hovered_square.?)) {
+                                    animation = .{
+                                        .piece = board.get(selected).*.?,
+                                        .move = .{ .from = selected, .to = p.hovered_square.? },
+                                        .progress = 0,
+                                    };
+                                    try history.addHistoryEntry(board);
+                                }
+                            } else {
+                                p.selected_square = null;
                             }
                         } else {
-                            p.selected_square = p.hovered_square;
+                            if (board.get(p.hovered_square.?).*) |piece| {
+                                if (piece.side == .black) {
+                                    p.selected_square = p.hovered_square;
+                                }
+                            }
                         }
                     }
                 },
@@ -260,6 +330,22 @@ pub fn doChess(_: std.mem.Allocator, uci: *Uci) !void {
                 );
             } else {
                 drawChessBoard(board, rlx.screenSquare(), if (whos_turn == .player) whos_turn.player else .null, style);
+                if (whos_turn == .player) {
+                    if (whos_turn.player.selected_square) |selected_square| {
+                        for (0..8) |y| {
+                            for (0..8) |x| {
+                                if (board.isMovePossible(selected_square, .{ .file = @intCast(x), .row = @intCast(7 - y) })) {
+                                    const posf: rl.Vector2 = .init(@floatFromInt(x), @floatFromInt(y));
+                                    rl.drawCircleV(
+                                        posf.scale(side_length / 8).addValue((style.padding - side_length) / 2 + cell_size / 2).add(center),
+                                        10,
+                                        .green,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
             }
             // gui
             {
@@ -288,7 +374,6 @@ pub fn main() !void {
         std.log.err("can't deinit engine: {s}", .{@errorName(e)});
     };
     try doChess(
-        alloc,
         &uci,
     );
 }

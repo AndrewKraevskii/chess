@@ -36,6 +36,9 @@ pub const Move = struct {
     fn distanceVerticaly(move: Move) u3 {
         return if (move.from.row > move.to.row) move.from.row - move.to.row else move.to.row - move.from.row;
     }
+    fn distanceHorisontaly(move: Move) u3 {
+        return if (move.from.file > move.to.file) move.from.file - move.to.file else move.to.file - move.from.file;
+    }
 };
 
 pub fn get(board: *ChessBoard, pos: Position) *?PieceWithSide {
@@ -117,7 +120,6 @@ pub fn applyMove(board: *ChessBoard, move: Move) void {
     if (is_pawn and move.distanceVerticaly() == 2) {
         board.en_passant = move.from;
         board.en_passant.?.row = @intCast((@as(u4, move.from.row) + move.to.row) >> 1);
-        std.log.debug("{any}", .{board.en_passant.?});
     }
 
     board.halfmove_clock += 1;
@@ -217,6 +219,100 @@ pub const PieceWithSide = struct {
         return piece;
     }
 };
+
+fn isRookMovePossible(board: *ChessBoard, from: Position, to: Position, dv: u3, dh: u3) bool {
+    if (dv != 0 and dh != 0) return false;
+
+    var x = from.file;
+    var y = from.row;
+    while (true) {
+        switch (std.math.order(from.file, to.file)) {
+            .eq => {},
+            .lt => x += 1,
+            .gt => x -= 1,
+        }
+        switch (std.math.order(from.row, to.row)) {
+            .eq => {},
+            .lt => y += 1,
+            .gt => y -= 1,
+        }
+        if (x == to.file and y == to.row) {
+            return true;
+        }
+        if (board.get(.{ .row = y, .file = x }).* != null) {
+            return false;
+        }
+    }
+}
+
+const pawns_start_row: std.EnumArray(Side, u3) = .init(.{
+    .white = 1,
+    .black = 6,
+});
+
+pub fn isMovePossible(board: *ChessBoard, from: Position, to: Position) bool {
+    const piece = board.get(from).*.?;
+
+    if (board.get(to).*) |targeted_piece| {
+        if (targeted_piece.side == piece.side) return false;
+    }
+
+    const move: Move = .{ .from = from, .to = to };
+    const dv = move.distanceVerticaly();
+    const dh = move.distanceHorisontaly();
+    piece: switch (piece.piece) {
+        .king => return dv <= 1 and dh <= 1,
+        .knight => return @max(dv, dh) == 2 and @min(dv, dh) == 1,
+        .bishop => {
+            if (dv != dh) return false;
+
+            var x = from.file;
+            var y = from.row;
+            while (true) {
+                if (from.file < to.file) {
+                    x += 1;
+                } else {
+                    x -= 1;
+                }
+                if (from.row < to.row) {
+                    y += 1;
+                } else {
+                    y -= 1;
+                }
+                if (x == to.file) {
+                    return true;
+                }
+                if (board.get(.{ .row = y, .file = x }).* != null) {
+                    return false;
+                }
+            }
+            return true;
+        },
+        .rook => return board.isRookMovePossible(from, to, dv, dh),
+        .queen => {
+            if (board.isRookMovePossible(from, to, dv, dh)) return true;
+            continue :piece .bishop;
+        },
+        .pawn => {
+            if (board.turn == .white and from.row > to.row) return false;
+            if (board.turn == .black and from.row < to.row) return false;
+            if (dh == 0 and dv == 1) {
+                return board.get(to).* == null;
+            }
+            if (dh == 0 and dv == 2 and pawns_start_row.get(board.turn) == from.row) {
+                return board.get(.{
+                    .file = from.file,
+                    .row = if (board.turn == .white) from.row + 1 else from.row - 1,
+                }).* == null and board.get(to).* == null;
+            }
+            if (dh == 1 and dv == 1) {
+                return board.get(to).* != null;
+            }
+            // TODO: en passant
+            return false;
+        },
+    }
+}
 
 pub fn writeFen(self: *const ChessBoard, writer: anytype) !void {
     for (self.cells, 0..) |row, index| {
