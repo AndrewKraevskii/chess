@@ -4,7 +4,7 @@
 - basic uci protocol.
 - stockfish playing itself.
 - stockfish playing with player.
-- player plaing with player.
+- player playing with player.
 - checks for correctness of moves.
 
 ## Building
@@ -15,5 +15,5 @@ build using:
 zig build
 ```
 
-
+https://www.twitch.tv/andrewkraevskii/clip/BadVastHamsterPipeHype-crsTC4c-02ebm21T
 
