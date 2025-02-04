@@ -45,28 +45,50 @@ const ChessBoardDisplayStyle = struct {
     atlas: rl.Texture,
     white_square_color: rl.Color,
     black_square_color: rl.Color,
+    selected_square_color: rl.Color,
+    hovered_square_color: rl.Color,
     border_color: rl.Color,
 };
 
-fn drawChessBoard(board: ChessBoard, dest: rl.Rectangle, style: ChessBoardDisplayStyle) void {
+const Selection = struct {
+    hovered_square: ?ChessBoard.Position,
+    selected_square: ?ChessBoard.Position,
+
+    pub const @"null": Selection = .{
+        .hovered_square = null,
+        .selected_square = null,
+    };
+};
+
+fn drawChessBoard(board: ChessBoard, dest: rl.Rectangle, selection: Selection, style: ChessBoardDisplayStyle) void {
     const cell_size = dest.width / 8;
     var y: f32 = dest.y;
     var parity: u1 = 1;
     rl.drawRectangleRec(dest, style.border_color);
-    for (board.cells) |row| {
+    for (board.cells, 0..) |row, row_index| {
         defer y += cell_size;
         defer parity +%= 1;
         var x: f32 = dest.x;
-        for (row) |cell| {
+        for (row, 0..) |cell, file| {
             defer x += cell_size;
             defer parity +%= 1;
             const top_left_pos: rl.Vector2 = .init(x, y);
 
+            const this_square_hovered = if (selection.hovered_square) |pos| std.meta.eql(pos, .{
+                .row = @intCast(7 - row_index),
+                .file = @intCast(file),
+            }) else false;
+            const this_square_selected = if (selection.selected_square) |pos| std.meta.eql(pos, .{
+                .row = @intCast(7 - row_index),
+                .file = @intCast(file),
+            }) else false;
+
             rl.drawRectangleV(
                 top_left_pos.addValue(style.padding / 2),
                 .init(cell_size - style.padding, cell_size - style.padding),
-                if (parity == 0) style.black_square_color else style.white_square_color,
+                if (this_square_selected) style.selected_square_color else if (this_square_hovered) style.hovered_square_color else if (parity == 0) style.black_square_color else style.white_square_color,
             );
+
             if (cell) |piece_with_side| {
                 drawPiece(
                     piece_with_side,
@@ -122,6 +144,8 @@ pub fn doChess(_: std.mem.Allocator, uci: *Uci) !void {
         .padding = 4,
         .white_square_color = .white,
         .black_square_color = .black,
+        .selected_square_color = .yellow,
+        .hovered_square_color = .lime,
         .atlas = chess_figures,
         .border_color = .blue,
     };
@@ -132,6 +156,23 @@ pub fn doChess(_: std.mem.Allocator, uci: *Uci) !void {
 
     var paused: bool = false;
 
+    var whos_turn: union(enum) {
+        engine,
+        player: Selection,
+
+        fn switchTurn(whos_turn: *@This()) void {
+            whos_turn.* = switch (whos_turn.*) {
+                .engine => .{
+                    .player = .{
+                        .hovered_square = null,
+                        .selected_square = null,
+                    },
+                },
+                .player => .engine,
+            };
+        }
+    } = .engine;
+
     while (!rl.windowShouldClose()) {
         if (rl.isKeyPressed(.key_space)) {
             paused = !paused;
@@ -141,28 +182,55 @@ pub fn doChess(_: std.mem.Allocator, uci: *Uci) !void {
             if (animation) |*anim| { // update
                 if (anim.progress >= 1) {
                     board.applyMove(anim.move);
+                    whos_turn.switchTurn();
                     animation = null;
                 } else {
                     anim.progress += rl.getFrameTime() * animation_speed;
                 }
-            } else if (move) |state| {
-                if (state.get()) |result| {
-                    if (result) |m| {
-                        animation = Animation{
-                            .piece = board.get(m.from).*.?,
-                            .move = m,
-                            .progress = 0,
-                        };
-                        move = null;
+            } else switch (whos_turn) {
+                .engine => if (move) |state| {
+                    if (state.get()) |result| {
+                        if (result) |m| {
+                            animation = Animation{
+                                .piece = board.get(m.from).*.?,
+                                .move = m,
+                                .progress = 0,
+                            };
+                            move = null;
+                        }
+                    } else |_| {
+                        std.log.info("End of game {s} won", .{@tagName(board.turn.next())});
+                        break;
                     }
-                } else |_| {
-                    std.log.info("End of game {s} won", .{@tagName(board.turn.next())});
-                    break;
-                }
-            } else {
-                try uci.setPosition(board);
-                try uci.go(.{ .depth = 4 });
-                move = try uci.getMoveAsync();
+                } else {
+                    try uci.setPosition(board);
+                    try uci.go(.{ .depth = 4 });
+                    move = try uci.getMoveAsync();
+                },
+                .player => |*p| player: {
+                    const mouse_pos = rl.getMousePosition();
+                    if (!rl.checkCollisionPointRec(mouse_pos, rlx.screenSquare())) break :player;
+                    const normalized = rlx.normalizeInRectangle(rlx.screenSquare(), mouse_pos);
+                    const coords = normalized.scale(8);
+                    const x: u3 = @intFromFloat(coords.x);
+                    const y: u3 = @intFromFloat(coords.y);
+
+                    p.hovered_square = .{
+                        .file = x,
+                        .row = 7 - y,
+                    };
+
+                    if (rl.isMouseButtonPressed(.mouse_button_left)) {
+                        if (p.selected_square) |selected| {
+                            if (!std.meta.eql(selected, p.hovered_square.?)) {
+                                board.applyMove(.{ .from = selected, .to = p.hovered_square.? });
+                                whos_turn = .engine;
+                            }
+                        } else {
+                            p.selected_square = p.hovered_square;
+                        }
+                    }
+                },
             }
         }
         { // draw
@@ -179,18 +247,19 @@ pub fn doChess(_: std.mem.Allocator, uci: *Uci) !void {
                 drawChessBoard(
                     board_to_draw,
                     rlx.screenSquare(),
+                    if (whos_turn == .player) whos_turn.player else .{ .hovered_square = null, .selected_square = null },
                     style,
                 );
                 drawPiece(
                     anim.piece,
                     rectFromPositionAndSize(
-                        anim.position().scale(side_length).addValue(style.padding / 2).add(center).subtractValue(side_length / 2),
+                        anim.position().scale(side_length).addValue((style.padding - side_length) / 2).add(center),
                         .init(cell_size - style.padding, cell_size - style.padding),
                     ),
                     style,
                 );
             } else {
-                drawChessBoard(board, rlx.screenSquare(), style);
+                drawChessBoard(board, rlx.screenSquare(), if (whos_turn == .player) whos_turn.player else .null, style);
             }
             // gui
             {

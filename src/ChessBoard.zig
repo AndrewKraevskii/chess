@@ -5,10 +5,13 @@ const ChessBoard = @This();
 cells: [8][8]?PieceWithSide,
 turn: Side,
 moves: u16,
-can_castle: std.EnumArray(Side, struct {
-    king_side: bool,
-    queen_side: bool,
-}),
+can_castle: std.EnumArray(Side, std.EnumArray(CastleSide, bool)),
+/// In this situation shows square E where p is pawn
+/// p    .
+/// . -> E
+/// .    p
+en_passant: ?Position,
+halfmove_clock: u32,
 
 pub const Move = struct {
     from: Position,
@@ -29,34 +32,95 @@ pub const Move = struct {
 
         return move;
     }
+
+    fn distanceVerticaly(move: Move) u3 {
+        return if (move.from.row > move.to.row) move.from.row - move.to.row else move.to.row - move.from.row;
+    }
 };
 
 pub fn get(board: *ChessBoard, pos: Position) *?PieceWithSide {
     return &board.cells[7 - pos.row][pos.file];
 }
 
+const king_start_position: std.EnumArray(Side, Position) = .init(.{
+    .white = .fromString("e1".*),
+    .black = .fromString("e8".*),
+});
+
+const CastleSide = enum {
+    king,
+    queen,
+};
+
+const castle_squares: std.EnumArray(Side, std.EnumArray(CastleSide, struct { king_destination: Position, rook: Move })) = .init(.{
+    .white = .init(
+        .{
+            .king = .{
+                .king_destination = .fromString("g1".*),
+                .rook = .{ .from = .fromString("h1".*), .to = .fromString("f1".*) },
+            },
+            .queen = .{
+                .king_destination = .fromString("c1".*),
+                .rook = .{ .from = .fromString("h1".*), .to = .fromString("f1".*) },
+            },
+        },
+    ),
+    .black = .init(
+        .{
+            .king = .{
+                .king_destination = .fromString("g8".*),
+                .rook = .{ .from = .fromString("h8".*), .to = .fromString("f8".*) },
+            },
+            .queen = .{
+                .king_destination = .fromString("c8".*),
+                .rook = .{ .from = .fromString("h8".*), .to = .fromString("f8".*) },
+            },
+        },
+    ),
+});
+
 pub fn applyMove(board: *ChessBoard, move: Move) void {
     std.debug.assert(!std.meta.eql(move.from, move.to));
 
+    board.en_passant = null;
+
+    const side = board.turn;
+
     const from = board.get(move.from);
     const to = board.get(move.to);
-    if (from.*.?.piece == .king) {
-        const distance = @max(move.from.file, move.to.file) - @min(move.from.file, move.to.file);
-        if (distance == 2) { // its castle
-            if (move.to.file > move.from.file) { // short castle
-                std.log.debug("making short castle", .{});
-                board.cells[7 - move.to.row][5] = board.cells[7 - move.to.row][7];
-                board.cells[7 - move.to.row][7] = null;
-            } else { // long castle
-                std.log.debug("making long castle", .{});
-                board.cells[7 - move.to.row][3] = board.cells[7 - move.to.row][0];
-                board.cells[7 - move.to.row][0] = null;
+    const is_pawn = from.*.?.piece == .pawn;
+    {
+        if (from.*.?.piece == .king and
+            std.meta.eql(move.from, king_start_position.get(board.turn)))
+        {
+            const castle_squares_for_current_side = castle_squares.get(side);
+
+            inline for ([_]CastleSide{ .king, .queen }) |castle_side| {
+                if (std.meta.eql(castle_squares_for_current_side.get(castle_side).king_destination, move.to)) {
+                    const to_rook = board.get(castle_squares_for_current_side.get(castle_side).rook.to);
+                    const from_rook = board.get(castle_squares_for_current_side.get(castle_side).rook.from);
+                    to_rook.* = from_rook.*;
+                    from_rook.* = null;
+                    board.can_castle.set(side, .initFill(false));
+                    break;
+                }
             }
         }
-        board.can_castle.set(board.turn, .{ .king_side = false, .queen_side = false });
     }
     board.turn = board.turn.next();
     board.moves += 1;
+
+    if (to.* != null or is_pawn) {
+        board.halfmove_clock = 0;
+    }
+
+    if (is_pawn and move.distanceVerticaly() == 2) {
+        board.en_passant = move.from;
+        board.en_passant.?.row = @intCast((@as(u4, move.from.row) + move.to.row) >> 1);
+        std.log.debug("{any}", .{board.en_passant.?});
+    }
+
+    board.halfmove_clock += 1;
 
     to.* = from.*;
     if (move.promotion) |promotion| {
@@ -180,25 +244,40 @@ pub fn writeFen(self: *const ChessBoard, writer: anytype) !void {
 
     try writer.writeByte(' ');
     try writer.writeByte(self.turn.toChar());
-    if (self.can_castle.get(.white).king_side or self.can_castle.get(.white).queen_side or self.can_castle.get(.black).king_side or self.can_castle.get(.black).queen_side) {
-        try writer.writeAll(" ");
-        if (self.can_castle.get(.white).king_side) {
-            try writer.writeAll("K");
-        }
-        if (self.can_castle.get(.white).queen_side) {
-            try writer.writeAll("Q");
-        }
-        if (self.can_castle.get(.black).king_side) {
-            try writer.writeAll("k");
-        }
-        if (self.can_castle.get(.black).queen_side) {
-            try writer.writeAll("q");
+
+    // write castle
+    castle: inline for ([_]Side{ .white, .black }) |side| {
+        inline for ([_]CastleSide{ .king, .queen }) |castle_side| {
+            if (self.can_castle.get(side).get(castle_side)) {
+                try writer.writeAll(" ");
+                if (self.can_castle.get(.white).get(.king)) {
+                    try writer.writeAll("K");
+                }
+                if (self.can_castle.get(.white).get(.queen)) {
+                    try writer.writeAll("Q");
+                }
+                if (self.can_castle.get(.black).get(.king)) {
+                    try writer.writeAll("k");
+                }
+                if (self.can_castle.get(.black).get(.queen)) {
+                    try writer.writeAll("q");
+                }
+                break :castle;
+            }
         }
     } else {
         try writer.writeAll(" -");
     }
-    try writer.writeAll(" -");
-    try writer.print(" {d} {d}", .{ self.moves, self.moves });
+
+    // en passant
+    if (self.en_passant) |en_passant| {
+        try writer.print(" {s}", .{en_passant.serialize()});
+    } else {
+        try writer.writeAll(" -");
+    }
+
+    // number of moves
+    try writer.print(" {d} {d}", .{ self.halfmove_clock, self.moves });
 }
 
 pub const init = ChessBoard{
@@ -214,10 +293,12 @@ pub const init = ChessBoard{
     },
     .turn = .white,
     .moves = 0,
-    .can_castle = .initFill(.{
-        .queen_side = true,
-        .king_side = true,
-    }),
+    .halfmove_clock = 0,
+    .can_castle = .initFill(.init(.{
+        .queen = true,
+        .king = true,
+    })),
+    .en_passant = null,
 };
 
 test {

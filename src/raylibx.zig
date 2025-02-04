@@ -50,3 +50,7 @@ pub fn moveRectangle(rect: rl.Rectangle, vec: rl.Vector2) rl.Rectangle {
         .height = rect.height,
     };
 }
+
+pub fn normalizeInRectangle(rect: rl.Rectangle, pos: rl.Vector2) rl.Vector2 {
+    return pos.subtract(.init(rect.x, rect.y)).divide(.init(rect.width, rect.height));
+}
