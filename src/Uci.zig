@@ -92,7 +92,8 @@ pub fn setPosition(self: *@This(), board: ChessBoard) !void {
     try writer.writeAll("position fen ");
     try board.writeFen(writer.writer());
     try writer.writeAll("\n");
-    // try board.writeFen(std.io.getStdOut().writer());
+    try board.writeFen(std.io.getStdOut().writer());
+    try std.io.getStdOut().writer().writeByte('\n');
 }
 
 pub fn quit(self: *@This()) !void {

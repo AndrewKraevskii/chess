@@ -5,6 +5,12 @@ const ChessBoard = @import("ChessBoard.zig");
 const rlx = @import("raylibx.zig");
 const Uci = @import("Uci.zig");
 
+const PlayMode = enum {
+    eve,
+    pve,
+    pvp,
+};
+
 fn pieceIndexInAtlas(piece: ChessBoard.Piece) f32 {
     return switch (piece) {
         .pawn => 0,
@@ -166,31 +172,9 @@ pub fn History(comptime Item: type, comptime Size: usize) type {
     };
 }
 
-pub fn doChess(uci: *Uci) !void {
-    rl.setConfigFlags(.{
-        .window_resizable = true,
-    });
-    rl.setTraceLogLevel(.log_none);
+var animation_speed: f32 = 10;
 
-    rl.initWindow(1000, 1000, "Chess");
-    defer rl.closeWindow();
-
-    const chess_figures = rl.loadTexture("assets/chess_figures.png");
-    defer chess_figures.unload();
-
-    const style: ChessBoardDisplayStyle = .{
-        .padding = 4,
-        .white_square_color = .white,
-        .black_square_color = .black,
-        .selected_square_color = .yellow,
-        .hovered_square_color = .lime,
-        .atlas = chess_figures,
-        .border_color = .blue,
-    };
-    var animation_speed: f32 = 1;
-
-    // var history: std.BoundedArray(ChessBoard, 0x200) = .{};
-    // var undone: usize = 0;
+pub fn doChess(uci: *Uci, style: ChessBoardDisplayStyle, play_mode: PlayMode) !enum { white_won, black_won, draw } {
     var history: History(ChessBoard, 0x200) = .{};
     var board: ChessBoard = .init;
 
@@ -214,9 +198,16 @@ pub fn doChess(uci: *Uci) !void {
                 .player => .engine,
             };
         }
-    } = .engine;
+    } = switch (play_mode) {
+        .eve => .engine,
+        .pvp => .{ .player = .null },
+        .pve => if (std.crypto.random.boolean()) .{ .player = .null } else .engine,
+    };
 
     while (!rl.windowShouldClose()) {
+        if (board.halfmove_clock > 50) {
+            return .draw;
+        }
         if (rl.isKeyPressed(.key_space)) {
             paused = !paused;
         }
@@ -225,7 +216,12 @@ pub fn doChess(uci: *Uci) !void {
             if (animation) |*anim| { // update
                 if (anim.progress >= 1) {
                     board.applyMove(anim.move);
-                    whos_turn.switchTurn();
+                    switch (play_mode) {
+                        .pve => whos_turn.switchTurn(),
+                        .pvp => {},
+                        .eve => {},
+                    }
+                    if (play_mode == .pve) {} else {}
                     animation = null;
                 } else {
                     anim.progress += rl.getFrameTime() * animation_speed;
@@ -242,12 +238,14 @@ pub fn doChess(uci: *Uci) !void {
                             engine_async_move = null;
                         }
                     } else |_| {
-                        std.log.info("End of game {s} won", .{@tagName(board.turn.next())});
-                        break;
+                        return switch (board.turn.next()) {
+                            .white => .white_won,
+                            .black => .black_won,
+                        };
                     }
                 } else {
                     try uci.setPosition(board);
-                    try uci.go(.{ .depth = 1 });
+                    try uci.go(.{ .depth = @max(1, std.crypto.random.int(u3)) });
                     engine_async_move = try uci.getMoveAsync();
                 },
                 .player => |*p| player: {
@@ -274,9 +272,12 @@ pub fn doChess(uci: *Uci) !void {
 
                     if (rl.isMouseButtonPressed(.mouse_button_left)) {
                         if (p.selected_square) |selected| {
-                            if (!std.meta.eql(selected, p.hovered_square.?)) {
+                            if (std.meta.eql(selected, p.hovered_square.?)) {
+                                p.selected_square = null;
+                            } else {
                                 if (board.get(p.hovered_square.?).*) |piece| {
-                                    if (piece.side == .black) {
+                                    if (piece.side == board.turn) {
+                                        std.debug.print("select different\n", .{});
                                         p.selected_square = p.hovered_square;
                                         break :player;
                                     }
@@ -287,14 +288,13 @@ pub fn doChess(uci: *Uci) !void {
                                         .move = .{ .from = selected, .to = p.hovered_square.? },
                                         .progress = 0,
                                     };
+                                    p.* = .null;
                                     try history.addHistoryEntry(board);
                                 }
-                            } else {
-                                p.selected_square = null;
                             }
                         } else {
                             if (board.get(p.hovered_square.?).*) |piece| {
-                                if (piece.side == .black) {
+                                if (piece.side == board.turn) {
                                     p.selected_square = p.hovered_square;
                                 }
                             }
@@ -354,10 +354,42 @@ pub fn doChess(uci: *Uci) !void {
                     .y = 0,
                     .width = 100,
                     .height = 10,
-                }, "Speed", "", &animation_speed, 0.01, 10);
+                }, "Speed", "", &animation_speed, 0.01, 30);
             }
         }
     }
+    return error.WindowShouldClose;
+}
+
+fn selectMode() error{WindowShouldClose}!PlayMode {
+    while (!rl.windowShouldClose()) {
+        rl.beginDrawing();
+        defer rl.endDrawing();
+
+        rl.clearBackground(.black);
+
+        const center = rlx.getScreenCenter();
+        var rect: rl.Rectangle = .{
+            .x = center.x - 50,
+            .y = center.y - 20 - 30,
+            .width = 100,
+            .height = 40,
+        };
+
+        if (gui.guiButton(rect, "PVP") != 0) {
+            return .pvp;
+        }
+        rect.y += 50;
+        if (gui.guiButton(rect, "PVE") != 0) {
+            return .pve;
+        }
+        rect.y += 50;
+        if (gui.guiButton(rect, "EVE") != 0) {
+            return .eve;
+        }
+    }
+
+    return error.WindowShouldClose;
 }
 
 pub fn main() !void {
@@ -369,13 +401,65 @@ pub fn main() !void {
     const engine_path = try std.fs.path.join(alloc, &.{ self_path, "stockfish" });
 
     std.log.debug("{s}", .{engine_path});
-    var uci = try Uci.connect(alloc, engine_path);
-    defer uci.close() catch |e| {
-        std.log.err("can't deinit engine: {s}", .{@errorName(e)});
+    rl.setConfigFlags(.{
+        .window_resizable = true,
+    });
+    rl.setTraceLogLevel(.log_none);
+
+    rl.initWindow(1000, 1000, "Chess");
+    defer rl.closeWindow();
+
+    const chess_figures = rl.loadTexture("assets/chess_figures.png");
+    defer chess_figures.unload();
+    const style: ChessBoardDisplayStyle = .{
+        .padding = 4,
+        .white_square_color = .white,
+        .black_square_color = .black,
+        .selected_square_color = .yellow,
+        .hovered_square_color = .lime,
+        .atlas = chess_figures,
+        .border_color = .blue,
     };
-    try doChess(
-        &uci,
-    );
+
+    const mode = selectMode() catch return;
+
+    while (!rl.windowShouldClose()) {
+        var uci = try Uci.connect(alloc, engine_path);
+        defer uci.close() catch |e| {
+            std.log.err("can't deinit engine: {s}", .{@errorName(e)});
+        };
+        const result = doChess(
+            &uci,
+            style,
+            mode,
+        ) catch |e| switch (e) {
+            error.WindowShouldClose => break,
+            else => |other| return other,
+        };
+        std.log.info("End of game {s}", .{@tagName(result)});
+        const text = switch (result) {
+            .draw => "draw",
+            .white_won => "white won",
+            .black_won => "black won",
+        };
+
+        const font_size = 50;
+        const width = rl.measureText(text, font_size);
+        const text_pos = rlx.getScreenCenter().subtract(.init(@floatFromInt(@divFloor(width, 2)), @floatFromInt(@divFloor(font_size, 2))));
+        draw_winner: {
+            rl.beginDrawing();
+            defer rl.endDrawing();
+            rl.drawText(text, @intFromFloat(text_pos.x), @intFromFloat(text_pos.y), font_size, .red);
+            const side: ChessBoard.Side = switch (result) {
+                .draw => break :draw_winner,
+                .white_won => .white,
+                .black_won => .black,
+            };
+            const icon_side = font_size;
+            drawPiece(.{ .side = side, .piece = .king }, .{ .x = text_pos.x - icon_side, .y = text_pos.y, .width = icon_side, .height = icon_side }, style);
+        }
+        std.time.sleep(std.time.ns_per_s);
+    }
 }
 
 test {
