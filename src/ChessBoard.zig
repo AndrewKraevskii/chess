@@ -85,17 +85,12 @@ const castle_squares: std.EnumArray(Side, std.EnumArray(CastleSide, struct { kin
 pub fn applyMove(board: *ChessBoard, move: Move) void {
     std.debug.assert(!std.meta.eql(move.from, move.to));
 
-    board.en_passant = null;
-
     const side = board.turn;
 
     const from = board.get(move.from);
     const to = board.get(move.to);
-    const is_pawn = from.*.?.piece == .pawn;
-    {
-        if (from.*.?.piece == .king and
-            std.meta.eql(move.from, king_start_position.get(board.turn)))
-        {
+    switch (from.*.?.piece) {
+        .king => if (std.meta.eql(move.from, king_start_position.get(board.turn))) {
             const castle_squares_for_current_side = castle_squares.get(side);
 
             inline for ([_]CastleSide{ .king, .queen }) |castle_side| {
@@ -108,18 +103,35 @@ pub fn applyMove(board: *ChessBoard, move: Move) void {
                     break;
                 }
             }
-        }
+            board.en_passant = null;
+        },
+        .pawn => {
+            if (board.en_passant) |en_passant| {
+                if (std.meta.eql(en_passant, move.to)) {
+                    std.log.debug("umnam", .{});
+                    board.get(.{
+                        .row = move.from.row,
+                        .file = move.to.file,
+                    }).* = null;
+                }
+            }
+            if (move.distanceVerticaly() == 2) {
+                board.en_passant = move.from;
+                board.en_passant.?.row = @intCast((@as(u4, move.from.row) + move.to.row) >> 1);
+                std.log.debug("en_passant {s}", .{board.en_passant.?.serialize()});
+            }
+            board.halfmove_clock = 0;
+        },
+        else => {
+            board.en_passant = null;
+        },
     }
+
     board.turn = board.turn.next();
     board.moves += 1;
 
-    if (to.* != null or is_pawn) {
+    if (to.* != null) {
         board.halfmove_clock = 0;
-    }
-
-    if (is_pawn and move.distanceVerticaly() == 2) {
-        board.en_passant = move.from;
-        board.en_passant.?.row = @intCast((@as(u4, move.from.row) + move.to.row) >> 1);
     }
 
     board.halfmove_clock += 1;
@@ -306,9 +318,13 @@ pub fn isMovePossible(board: *ChessBoard, from: Position, to: Position) bool {
                 }).* == null and board.get(to).* == null;
             }
             if (dh == 1 and dv == 1) {
+                if (board.en_passant) |en_passant| {
+                    if (std.meta.eql(en_passant, to)) {
+                        return true;
+                    }
+                }
                 return board.get(to).* != null;
             }
-            // TODO: en passant
             return false;
         },
     }
