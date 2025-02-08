@@ -393,9 +393,12 @@ fn selectMode() error{WindowShouldClose}!PlayMode {
 }
 
 pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer _ = arena.deinit();
-    const alloc = arena.allocator();
+    var logging_alloc_state = std.heap.loggingAllocator(std.heap.page_allocator);
+    var program_arena_state = std.heap.ArenaAllocator.init(logging_alloc_state.allocator());
+    defer _ = program_arena_state.deinit();
+    const program_arena = program_arena_state.allocator();
+
+    const alloc = program_arena;
 
     const self_path = try std.fs.selfExeDirPathAlloc(alloc);
     const engine_path = try std.fs.path.join(alloc, &.{ self_path, "stockfish" });

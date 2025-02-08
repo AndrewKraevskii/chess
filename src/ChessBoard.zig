@@ -83,7 +83,10 @@ const castle_squares: std.EnumArray(Side, std.EnumArray(CastleSide, struct { kin
 });
 
 pub fn applyMove(board: *ChessBoard, move: Move) void {
-    std.debug.assert(!std.meta.eql(move.from, move.to));
+    if (std.meta.eql(move.from, move.to)) {
+        std.log.err("{s} {s}", .{ move.from.serialize(), move.to.serialize() });
+        std.debug.assert(!std.meta.eql(move.from, move.to));
+    }
 
     const side = board.turn;
 
@@ -133,7 +136,6 @@ pub fn applyMove(board: *ChessBoard, move: Move) void {
     if (to.* != null) {
         board.halfmove_clock = 0;
     }
-
     board.halfmove_clock += 1;
 
     to.* = from.*;
@@ -331,6 +333,7 @@ pub fn isMovePossible(board: *ChessBoard, from: Position, to: Position) bool {
 }
 
 pub fn writeFen(self: *const ChessBoard, writer: anytype) !void {
+    // write board positions
     for (self.cells, 0..) |row, index| {
         var running_empties: u4 = 0;
         for (row) |empty_or_piece| {
@@ -354,8 +357,8 @@ pub fn writeFen(self: *const ChessBoard, writer: anytype) !void {
             try writer.writeByte('/');
     }
 
-    try writer.writeByte(' ');
-    try writer.writeByte(self.turn.toChar());
+    // write current turn
+    try writer.print(" {c}", .{self.turn.toChar()});
 
     // write castle
     castle: inline for ([_]Side{ .white, .black }) |side| {
