@@ -259,13 +259,53 @@ fn isRookMovePossible(board: *ChessBoard, from: Position, to: Position, dv: u3, 
     }
 }
 
+fn findAny(board: *ChessBoard, piece: PieceWithSide) ?Position {
+    for (0..8) |y| {
+        for (0..8) |x| {
+            const pos: Position = .{
+                .row = @intCast(y),
+                .file = @intCast(x),
+            };
+            if (board.get(pos).*) |piece_on_board| {
+                if (std.meta.eql(piece, piece_on_board)) {
+                    return pos;
+                }
+            }
+        }
+    }
+    return null;
+}
+
+fn kingInCheck(board: *ChessBoard, side: Side) bool {
+    const king_pos = board.findAny(.{ .piece = .king, .side = side }).?;
+
+    for (0..8) |y| {
+        for (0..8) |x| {
+            const pos: Position = .{
+                .row = @intCast(y),
+                .file = @intCast(x),
+            };
+            if (board.isMovePossibleWithNoCheck(pos, king_pos)) return true;
+        }
+    }
+    return false;
+}
+
 const pawns_start_row: std.EnumArray(Side, u3) = .init(.{
     .white = 1,
     .black = 6,
 });
 
 pub fn isMovePossible(board: *ChessBoard, from: Position, to: Position) bool {
-    const piece = board.get(from).*.?;
+    if (!board.isMovePossibleWithNoCheck(from, to)) return false;
+
+    var board_copy = board.*;
+    board_copy.applyMove(.{ .from = from, .to = to });
+    return !board_copy.kingInCheck(board.turn);
+}
+
+fn isMovePossibleWithNoCheck(board: *ChessBoard, from: Position, to: Position) bool {
+    const piece = board.get(from).* orelse return false;
 
     if (board.get(to).*) |targeted_piece| {
         if (targeted_piece.side == piece.side) return false;
