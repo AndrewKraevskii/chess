@@ -33,7 +33,7 @@ pub const Move = struct {
         return move;
     }
 
-    fn distanceVerticaly(move: Move) u3 {
+    fn distanceVertically(move: Move) u3 {
         return if (move.from.row > move.to.row) move.from.row - move.to.row else move.to.row - move.from.row;
     }
     fn distanceHorisontaly(move: Move) u3 {
@@ -118,7 +118,7 @@ pub fn applyMove(board: *ChessBoard, move: Move) void {
                     }).* = null;
                 }
             }
-            if (move.distanceVerticaly() == 2) {
+            if (move.distanceVertically() == 2) {
                 board.en_passant = move.from;
                 board.en_passant.?.row = @intCast((@as(u4, move.from.row) + move.to.row) >> 1);
                 std.log.debug("en_passant {s}", .{board.en_passant.?.serialize()});
@@ -272,7 +272,7 @@ pub fn isMovePossible(board: *ChessBoard, from: Position, to: Position) bool {
     }
 
     const move: Move = .{ .from = from, .to = to };
-    const dv = move.distanceVerticaly();
+    const dv = move.distanceVertically();
     const dh = move.distanceHorisontaly();
     piece: switch (piece.piece) {
         .king => return dv <= 1 and dh <= 1,

@@ -184,12 +184,12 @@ pub fn doChess(uci: *Uci, style: ChessBoardDisplayStyle, play_mode: PlayMode) !e
     var animation: ?Animation = null;
     var paused: bool = false;
 
-    var whos_turn: union(enum) {
+    var whose_turn: union(enum) {
         engine,
         player: Selection,
 
-        fn switchTurn(whos_turn: *@This()) void {
-            whos_turn.* = switch (whos_turn.*) {
+        fn switchTurn(whose_turn: *@This()) void {
+            whose_turn.* = switch (whose_turn.*) {
                 .engine => .{
                     .player = .{
                         .hovered_square = null,
@@ -218,7 +218,7 @@ pub fn doChess(uci: *Uci, style: ChessBoardDisplayStyle, play_mode: PlayMode) !e
                 if (anim.progress >= 1) {
                     board.applyMove(anim.move);
                     switch (play_mode) {
-                        .pve => whos_turn.switchTurn(),
+                        .pve => whose_turn.switchTurn(),
                         .pvp => {},
                         .eve => {},
                     }
@@ -227,7 +227,7 @@ pub fn doChess(uci: *Uci, style: ChessBoardDisplayStyle, play_mode: PlayMode) !e
                 } else {
                     anim.progress += rl.getFrameTime() * animation_speed;
                 }
-            } else switch (whos_turn) {
+            } else switch (whose_turn) {
                 .engine => if (engine_async_move) |state| {
                     if (state.get()) |result| {
                         if (result) |m| {
@@ -318,7 +318,7 @@ pub fn doChess(uci: *Uci, style: ChessBoardDisplayStyle, play_mode: PlayMode) !e
                 drawChessBoard(
                     board_to_draw,
                     rlx.screenSquare(),
-                    if (whos_turn == .player) whos_turn.player else .{ .hovered_square = null, .selected_square = null },
+                    if (whose_turn == .player) whose_turn.player else .{ .hovered_square = null, .selected_square = null },
                     style,
                 );
                 drawPiece(
@@ -330,9 +330,9 @@ pub fn doChess(uci: *Uci, style: ChessBoardDisplayStyle, play_mode: PlayMode) !e
                     style,
                 );
             } else {
-                drawChessBoard(board, rlx.screenSquare(), if (whos_turn == .player) whos_turn.player else .null, style);
-                if (whos_turn == .player) {
-                    if (whos_turn.player.selected_square) |selected_square| {
+                drawChessBoard(board, rlx.screenSquare(), if (whose_turn == .player) whose_turn.player else .null, style);
+                if (whose_turn == .player) {
+                    if (whose_turn.player.selected_square) |selected_square| {
                         for (0..8) |y| {
                             for (0..8) |x| {
                                 if (board.isMovePossible(selected_square, .{ .file = @intCast(x), .row = @intCast(7 - y) })) {
