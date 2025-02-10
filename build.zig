@@ -5,7 +5,7 @@ pub fn build(b: *std.Build) void {
 
     const optimize = b.standardOptimizeOption(.{});
 
-    const use_llvm = b.option(bool, "use_llvm", "use llvm default true") orelse true;
+    const use_llvm = b.option(bool, "use_llvm", "use llvm default true") orelse false;
 
     const exe = b.addExecutable(.{
         .name = "chessfrontend",

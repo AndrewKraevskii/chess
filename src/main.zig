@@ -47,6 +47,7 @@ fn drawPiece(@"type": ChessBoard.PieceWithSide, dest: rl.Rectangle, style: Chess
 }
 
 const ChessBoardDisplayStyle = struct {
+    font: rl.Font,
     padding: f32,
     atlas: rl.Texture,
     white_square_color: rl.Color,
@@ -347,7 +348,24 @@ pub fn doChess(uci: *Uci, style: ChessBoardDisplayStyle, play_mode: PlayMode) !e
                     }
                 }
             }
-            // gui
+            const font_size = cell_size * 0.3;
+            {
+                var x = center.x - cell_size * 4;
+                for (0..8) |i| {
+                    defer x += cell_size;
+                    var text: [2:0]u8 = .{ @intCast(i + 'a'), 0 };
+                    rl.drawTextEx(style.font, &text, .init(x + style.padding, center.y + cell_size * 4 - font_size), font_size, 1, .red);
+                }
+            }
+            {
+                var y = center.y - cell_size * 4;
+                for (0..8) |i| {
+                    defer y += cell_size;
+                    var text: [2:0]u8 = .{ @intCast(i + '1'), 0 };
+                    const size = rl.measureTextEx(style.font, &text, font_size, 1);
+                    rl.drawTextEx(style.font, &text, .init(center.x + cell_size * 4 - size.x * 1.5, y + style.padding), font_size, 1, .red);
+                }
+            } // gui
             {
                 _ = gui.guiSlider(.{
                     .x = 0,
@@ -415,6 +433,7 @@ pub fn main() !void {
     const chess_figures = rl.loadTexture("assets/chess_figures.png");
     defer chess_figures.unload();
     const style: ChessBoardDisplayStyle = .{
+        .font = rl.getFontDefault(),
         .padding = 4,
         .white_square_color = .white,
         .black_square_color = .black,
