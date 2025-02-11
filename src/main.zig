@@ -209,7 +209,7 @@ pub fn doChess(uci: *Uci, style: ChessBoardDisplayStyle, play_mode: PlayMode) !e
         if (board.halfmove_clock > 50) {
             return .draw;
         }
-        if (rl.isKeyPressed(.key_space)) {
+        if (rl.isKeyPressed(.space)) {
             paused = !paused;
         }
 
@@ -250,11 +250,11 @@ pub fn doChess(uci: *Uci, style: ChessBoardDisplayStyle, play_mode: PlayMode) !e
                     engine_async_move = try uci.getMoveAsync();
                 },
                 .player => |*p| player: {
-                    if (rl.isKeyPressed(.key_u)) undo: {
+                    if (rl.isKeyPressed(.u)) undo: {
                         board = history.undo() orelse break :undo;
                         break :player;
                     }
-                    if (rl.isKeyPressed(.key_r)) redo: {
+                    if (rl.isKeyPressed(.r)) redo: {
                         board = history.redo() orelse break :redo;
                         break :player;
                     }
@@ -271,7 +271,7 @@ pub fn doChess(uci: *Uci, style: ChessBoardDisplayStyle, play_mode: PlayMode) !e
                         .row = 7 - y,
                     };
 
-                    if (rl.isMouseButtonPressed(.mouse_button_left)) {
+                    if (rl.isMouseButtonPressed(.left)) {
                         if (p.selected_square) |selected| {
                             if (std.meta.eql(selected, p.hovered_square.?)) {
                                 p.selected_square = null;
@@ -425,15 +425,15 @@ pub fn main() !void {
     rl.setConfigFlags(.{
         .window_resizable = true,
     });
-    rl.setTraceLogLevel(.log_none);
+    rl.setTraceLogLevel(.none);
 
     rl.initWindow(1000, 1000, "Chess");
     defer rl.closeWindow();
 
-    const chess_figures = rl.loadTexture("assets/chess_figures.png");
+    const chess_figures = try rl.loadTexture("assets/chess_figures.png");
     defer chess_figures.unload();
     const style: ChessBoardDisplayStyle = .{
-        .font = rl.getFontDefault(),
+        .font = try rl.getFontDefault(),
         .padding = 4,
         .white_square_color = .white,
         .black_square_color = .black,

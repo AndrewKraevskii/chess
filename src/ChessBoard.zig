@@ -6,6 +6,7 @@ cells: [8][8]?PieceWithSide,
 turn: Side,
 moves: u16,
 can_castle: std.EnumArray(Side, std.EnumArray(CastleSide, bool)),
+/// Points to square which can be eaten by pawn.
 /// In this situation shows square E where p is pawn
 /// p    .
 /// . -> E

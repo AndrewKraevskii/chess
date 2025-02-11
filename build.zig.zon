@@ -7,8 +7,8 @@
             .hash = "12208c20d9d8a2644e421fd79ec1e2c907ca5ed84af8cc12ac4e6d05f35c95d5e196",
         },
         .@"raylib-zig" = .{
-            .url = "git+https://github.com/Not-Nik/raylib-zig?ref=devel#de8c2d458516fc971f0859c4473e3381767d2471",
-            .hash = "122058d3ea6318efb819d0bffba630afd1a459fa3a99b4bfe4b680a937d5de04d2fc",
+            .url = "git+https://github.com/andrewkraevskii/raylib-zig#f5922db76078365aac947e909b04eca8a4a8288e",
+            .hash = "122080ef1eb2cf47cce28c47e61d1443e24fa1905343fea9e0c637b12eb26f050ec6",
         },
     },
     .paths = .{
