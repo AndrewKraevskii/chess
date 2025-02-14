@@ -411,8 +411,7 @@ fn selectMode() error{WindowShouldClose}!PlayMode {
 }
 
 pub fn main() !void {
-    var logging_alloc_state = std.heap.loggingAllocator(std.heap.page_allocator);
-    var program_arena_state = std.heap.ArenaAllocator.init(logging_alloc_state.allocator());
+    var program_arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer _ = program_arena_state.deinit();
     const program_arena = program_arena_state.allocator();
 
