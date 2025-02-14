@@ -26,34 +26,36 @@ pub fn connect(arena: std.mem.Allocator, engine_path: []const u8) !@This() {
 }
 
 pub fn Promise(comptime T: type) type {
-    return union(enum) {
-        none,
-        done: T,
-        err,
+    return struct {
+        done: std.atomic.Value(bool),
+        result: T,
 
-        pub fn get(self: @This()) !?T {
-            return switch (self) {
-                .none => null,
-                .done => |t| t,
-                .err => error.EndOfGame,
-            };
+        pub fn get(self: @This()) ?T {
+            if (self.done.load(.acquire)) {
+                return self.result;
+            }
+            return null;
         }
     };
 }
 
-pub const MovePromise = Promise(Move);
+pub const MovePromise = Promise(error{EndOfGame}!Move);
 
 pub fn getMoveAsync(self: *@This()) std.Thread.SpawnError!*MovePromise {
-    self.promise = .none;
+    self.promise = .{ .done = .init(false), .result = undefined };
     const thread = try std.Thread.spawn(.{}, struct {
         fn move(
             _self: *Uci,
             promise: *MovePromise,
         ) void {
-            promise.* = if (getMove(_self)) |_move|
-                .{ .done = _move }
-            else |_|
-                .err;
+            promise.result = getMove(_self) catch |e| switch (e) {
+                error.EndOfGame => error.EndOfGame,
+                else => |other| {
+                    std.log.err("{s}", .{@errorName(other)});
+                    return;
+                },
+            };
+            promise.done.store(true, .release);
         }
     }.move, .{ self, &self.promise.? });
     thread.detach();

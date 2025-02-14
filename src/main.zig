@@ -237,12 +237,12 @@ pub fn doChess(uci: *Uci, style: ChessBoardDisplayStyle, play_mode: PlayMode) !e
                                 .progress = 0,
                             };
                             engine_async_move = null;
+                        } else |_| {
+                            return switch (board.turn.next()) {
+                                .white => .white_won,
+                                .black => .black_won,
+                            };
                         }
-                    } else |_| {
-                        return switch (board.turn.next()) {
-                            .white => .white_won,
-                            .black => .black_won,
-                        };
                     }
                 } else {
                     try uci.setPosition(board);
