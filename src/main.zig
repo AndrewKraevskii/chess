@@ -367,7 +367,7 @@ pub fn doChess(uci: *Uci, style: ChessBoardDisplayStyle, play_mode: PlayMode) !e
                 }
             } // gui
             {
-                _ = gui.guiSlider(.{
+                _ = gui.slider(.{
                     .x = 0,
                     .y = 0,
                     .width = 100,
@@ -394,15 +394,15 @@ fn selectMode() error{WindowShouldClose}!PlayMode {
             .height = 40,
         };
 
-        if (gui.guiButton(rect, "PVP") != 0) {
+        if (gui.button(rect, "PVP")) {
             return .pvp;
         }
         rect.y += 50;
-        if (gui.guiButton(rect, "PVE") != 0) {
+        if (gui.button(rect, "PVE")) {
             return .pve;
         }
         rect.y += 50;
-        if (gui.guiButton(rect, "EVE") != 0) {
+        if (gui.button(rect, "EVE")) {
             return .eve;
         }
     }

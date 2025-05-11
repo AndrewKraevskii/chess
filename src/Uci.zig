@@ -7,10 +7,6 @@ engine_process: std.process.Child,
 promise: ?MovePromise,
 
 pub fn connect(arena: std.mem.Allocator, engine_path: []const u8) !@This() {
-    // memporary fix. Need to use std.process.Child.waitForSpawn when upgraded
-    // to 0.14.0
-    _ = std.fs.cwd().statFile(engine_path) catch return error.EngineNotFound;
-
     var child = std.process.Child.init(
         &.{engine_path},
         arena,
@@ -18,6 +14,7 @@ pub fn connect(arena: std.mem.Allocator, engine_path: []const u8) !@This() {
     child.stdin_behavior = .Pipe;
     child.stdout_behavior = .Pipe;
     try child.spawn();
+    try child.waitForSpawn();
 
     return .{
         .engine_process = child,

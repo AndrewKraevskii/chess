@@ -23,7 +23,7 @@ pub fn build(b: *std.Build) void {
     b.getInstallStep().dependOn(&install_stockfish_step.step);
 
     { // raylib
-        const raylib_dep = b.dependency("raylib-zig", .{
+        const raylib_dep = b.dependency("raylib", .{
             .target = target,
             .optimize = optimize,
         });
