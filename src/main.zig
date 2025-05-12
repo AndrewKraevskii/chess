@@ -4,6 +4,7 @@ const gui = @import("raygui");
 const ChessBoard = @import("ChessBoard.zig");
 const rlx = @import("raylibx.zig");
 const Uci = @import("Uci.zig");
+const Io = std.Io;
 
 const PlayMode = enum {
     eve,
@@ -135,24 +136,34 @@ const Animation = struct {
     }
 };
 
-pub fn History(comptime Item: type, comptime Size: usize) type {
+pub fn History(comptime Item: type) type {
     return struct {
-        events: std.BoundedArray(Item, Size) = .{},
-        undone: usize = 0,
+        events: std.ArrayList(Item),
+        undone: usize,
+
+        pub fn init(gpa: std.mem.Allocator, capacity: usize) !@This() {
+            return .{
+                .events = try .initCapacity(gpa, capacity),
+                .undone = 0,
+            };
+        }
+        pub fn deinit(h: *@This(), gpa: std.mem.Allocator) void {
+            h.events.deinit(gpa);
+        }
 
         pub fn undo(history: *@This()) ?Item {
-            std.debug.assert(history.undone <= history.events.len);
-            if (history.undone == history.events.len) {
+            std.debug.assert(history.undone <= history.events.items.len);
+            if (history.undone == history.events.items.len) {
                 return null;
             }
             history.undone += 1;
 
-            return history.events.get(history.events.len - history.undone);
+            return history.events.items[history.events.items.len - history.undone];
         }
 
         pub fn redo(history: *@This()) ?Item {
             if (history.undone == 0) return null;
-            const event_to_redo = history.events.get(history.events.len - history.undone);
+            const event_to_redo = history.events.items[history.events.items.len - history.undone];
             history.undone -= 1;
             return event_to_redo;
         }
@@ -162,11 +173,11 @@ pub fn History(comptime Item: type, comptime Size: usize) type {
             entry: Item,
         ) !void {
             if (history.undone != 0) {
-                history.events.resize(history.events.len - history.undone) catch unreachable;
+                history.events.shrinkRetainingCapacity(history.events.items.len - history.undone);
                 history.undone = 0;
             }
 
-            try history.events.append(
+            try history.events.appendBounded(
                 entry,
             );
         }
@@ -175,8 +186,10 @@ pub fn History(comptime Item: type, comptime Size: usize) type {
 
 var animation_speed: f32 = 10;
 
-pub fn doChess(uci: *Uci, style: ChessBoardDisplayStyle, play_mode: PlayMode) !enum { white_won, black_won, draw } {
-    var history: History(ChessBoard, 0x200) = .{};
+pub fn doChess(uci: *Uci, random: std.Random, gpa: std.mem.Allocator, style: ChessBoardDisplayStyle, play_mode: PlayMode) !enum { white_won, black_won, draw } {
+    var history: History(ChessBoard) = try .init(gpa, 0x200);
+    defer history.deinit(gpa);
+
     var board: ChessBoard = .init;
 
     var engine_async_move: ?*Uci.MovePromise = null;
@@ -202,7 +215,7 @@ pub fn doChess(uci: *Uci, style: ChessBoardDisplayStyle, play_mode: PlayMode) !e
     } = switch (play_mode) {
         .eve => .engine,
         .pvp => .{ .player = .null },
-        .pve => if (std.crypto.random.boolean()) .{ .player = .null } else .engine,
+        .pve => if (random.boolean()) .{ .player = .null } else .engine,
     };
 
     while (!rl.windowShouldClose()) {
@@ -246,7 +259,7 @@ pub fn doChess(uci: *Uci, style: ChessBoardDisplayStyle, play_mode: PlayMode) !e
                     }
                 } else {
                     try uci.setPosition(board);
-                    try uci.go(.{ .depth = @max(1, std.crypto.random.int(u3)) });
+                    try uci.go(.{ .depth = @max(1, random.int(u3)) });
                     engine_async_move = try uci.getMoveAsync();
                 },
                 .player => |*p| player: {
@@ -410,15 +423,16 @@ fn selectMode() error{WindowShouldClose}!PlayMode {
     return error.WindowShouldClose;
 }
 
-pub fn main() !void {
-    var program_arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer _ = program_arena_state.deinit();
-    const program_arena = program_arena_state.allocator();
-
+pub fn main(init: std.process.Init) !void {
+    const program_arena = init.arena.allocator();
     const alloc = program_arena;
 
-    const self_path = try std.fs.selfExeDirPathAlloc(alloc);
+    const io = init.io;
+    // std.Io.Dir.self
+    const self_path = try std.process.executableDirPathAlloc(io, alloc);
     const engine_path = try std.fs.path.join(alloc, &.{ self_path, "stockfish" });
+
+    var random = std.Random.DefaultPrng.init(0);
 
     std.log.debug("{s}", .{engine_path});
     rl.setConfigFlags(.{
@@ -445,12 +459,14 @@ pub fn main() !void {
     const mode = selectMode() catch return;
 
     while (!rl.windowShouldClose()) {
-        var uci = try Uci.connect(alloc, engine_path);
+        var uci = try Uci.connect(alloc, io, engine_path);
         defer uci.close() catch |e| {
             std.log.err("can't deinit engine: {s}", .{@errorName(e)});
         };
         const result = doChess(
             &uci,
+            random.random(),
+            program_arena,
             style,
             mode,
         ) catch |e| switch (e) {
@@ -479,7 +495,7 @@ pub fn main() !void {
             const icon_side = font_size;
             drawPiece(.{ .side = side, .piece = .king }, .{ .x = text_pos.x - icon_side, .y = text_pos.y, .width = icon_side, .height = icon_side }, style);
         }
-        std.time.sleep(std.time.ns_per_s);
+        try io.sleep(.fromSeconds(1), .awake);
     }
 }
 

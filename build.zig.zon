@@ -2,14 +2,17 @@
     .name = .chessfrontend,
     .version = "0.0.0",
     .fingerprint = 0xcef3d0e039084302,
+    .minimum_zig_version = "0.16.0-dev.2261+d6b3dd25a",
     .dependencies = .{
         .Stockfish = .{
-            .url = "git+https://github.com/allyourcodebase/Stockfish#73278b77294287eacd50527abda23c06c7797888",
-            .hash = "12208c20d9d8a2644e421fd79ec1e2c907ca5ed84af8cc12ac4e6d05f35c95d5e196",
+            // .url = "git+https://github.com/allyourcodebase/Stockfish#6b88b7c0a226fdaf85f88c530732f681aff71b24",
+            // .hash = "stockfish-17.0.0-Ccetzo6aAACfvfQOo3_DgAmpoQ98T_ozZu7-WFa5vtpo",
+            .path = "../Stockfish",
         },
         .raylib = .{
-            .url = "git+https://github.com/Not-Nik/raylib-zig#3bf08a304cfe2baf839705063ff999b8d8bc8c54",
-            .hash = "raylib_zig-5.6.0-dev-KE8REKAqBQAQugfCOjYYVRFOi7iaEJK1EMDcRUq8AOm2",
+            // .url = "git+https://github.com/mdm5995/raylib-zig.git#a4d18b2d1cf8fdddec68b5b084535fca0475f466",
+            // .hash = "raylib_zig-5.6.0-dev-KE8REL5MBQAf3p497t52Xw9P7ojndIkVOWPXnLiLLw2P",
+            .path = "../../raylib-zig",
         },
     },
     .paths = .{

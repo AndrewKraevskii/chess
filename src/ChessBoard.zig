@@ -145,7 +145,7 @@ pub fn applyMove(board: *ChessBoard, move: Move) void {
     }
     from.* = null;
 
-    std.debug.print("moved from {s} to {s}\n", .{ move.from.serialize(), move.to.serialize() });
+    std.log.info("moved from {s} to {s}", .{ move.from.serialize(), move.to.serialize() });
 }
 
 pub const Side = enum {
@@ -373,7 +373,7 @@ fn isMovePossibleWithNoCheck(board: *ChessBoard, from: Position, to: Position) b
     }
 }
 
-pub fn writeFen(self: *const ChessBoard, writer: anytype) !void {
+pub fn writeFen(self: *const ChessBoard, writer: *std.Io.Writer) !void {
     // write board positions
     for (self.cells, 0..) |row, index| {
         var running_empties: u4 = 0;
@@ -459,7 +459,7 @@ pub const init = ChessBoard{
 
 test {
     var buffer: [0x1000]u8 = undefined;
-    var bw = std.io.fixedBufferStream(&buffer);
-    try ChessBoard.init.writeFen(bw.writer());
-    try std.testing.expectEqualSlices(u8, "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 0", bw.buffer[0..bw.pos]);
+    var bw: std.Io.Writer = .fixed(&buffer);
+    try ChessBoard.init.writeFen(&bw);
+    try std.testing.expectEqualSlices(u8, "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 0", bw.buffered());
 }
