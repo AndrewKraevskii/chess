@@ -186,7 +186,8 @@ pub fn History(comptime Item: type) type {
 
 var animation_speed: f32 = 10;
 
-pub fn doChess(uci: *Uci, random: std.Random, gpa: std.mem.Allocator, style: ChessBoardDisplayStyle, play_mode: PlayMode) !enum { white_won, black_won, draw } {
+pub fn doChess(uci: *Uci, random: std.Random, io: Io, gpa: std.mem.Allocator, style: ChessBoardDisplayStyle, play_mode: PlayMode) !enum { white_won, black_won, draw } {
+    _ = io; // autofix
     var history: History(ChessBoard) = try .init(gpa, 0x200);
     defer history.deinit(gpa);
 
@@ -260,7 +261,7 @@ pub fn doChess(uci: *Uci, random: std.Random, gpa: std.mem.Allocator, style: Che
                 } else {
                     try uci.setPosition(board);
                     try uci.go(.{ .depth = @max(1, random.int(u3)) });
-                    engine_async_move = try uci.getMoveAsync();
+                    engine_async_move = uci.getMoveAsync();
                 },
                 .player => |*p| player: {
                     if (rl.isKeyPressed(.u)) undo: {
@@ -466,6 +467,7 @@ pub fn main(init: std.process.Init) !void {
         const result = doChess(
             &uci,
             random.random(),
+            io,
             program_arena,
             style,
             mode,

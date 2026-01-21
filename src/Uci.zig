@@ -7,6 +7,7 @@ const Io = std.Io;
 io: Io,
 engine_process: std.process.Child,
 promise: ?MovePromise,
+group: std.Io.Group,
 
 pub fn connect(arena: std.mem.Allocator, io: Io, engine_path: []const u8) !@This() {
     const child = try std.process.spawn(io, .{
@@ -23,6 +24,7 @@ pub fn connect(arena: std.mem.Allocator, io: Io, engine_path: []const u8) !@This
         .io = io,
         .engine_process = child,
         .promise = null,
+        .group = .init,
     };
 }
 
@@ -42,9 +44,9 @@ pub fn Promise(comptime T: type) type {
 
 pub const MovePromise = Promise(error{EndOfGame}!Move);
 
-pub fn getMoveAsync(self: *@This()) std.Thread.SpawnError!*MovePromise {
+pub fn getMoveAsync(self: *@This()) *MovePromise {
     self.promise = .{ .done = .init(false), .result = undefined };
-    const thread = try std.Thread.spawn(.{}, struct {
+    self.group.concurrent(self.io, struct {
         fn move(
             _self: *Uci,
             promise: *MovePromise,
@@ -58,8 +60,7 @@ pub fn getMoveAsync(self: *@This()) std.Thread.SpawnError!*MovePromise {
             };
             promise.done.store(true, .release);
         }
-    }.move, .{ self, &self.promise.? });
-    thread.detach();
+    }.move, .{ self, &self.promise.? }) catch @panic("ConcurrencyUnavailable");
 
     return &self.promise.?;
 }
@@ -104,6 +105,7 @@ pub fn quit(self: *@This()) !void {
     try self.engine_process.stdin.?.writeStreamingAll(self.io, "quit\n");
     _ = try self.engine_process.wait(self.io);
 
+    self.group.cancel(self.io);
     std.log.info("quit engine", .{});
 }
 
