@@ -444,7 +444,8 @@ pub fn main(init: std.process.Init) !void {
     rl.initWindow(1000, 1000, "Chess");
     defer rl.closeWindow();
 
-    const chess_figures = try rl.loadTexture("assets/chess_figures.png");
+    const image = try rl.loadImageFromMemory(".png", @embedFile("chess_figures"));
+    const chess_figures = try rl.loadTextureFromImage(image);
     defer chess_figures.unload();
     const style: ChessBoardDisplayStyle = .{
         .font = try rl.getFontDefault(),

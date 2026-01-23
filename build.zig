@@ -11,6 +11,9 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    module.addAnonymousImport("chess_figures", .{
+        .root_source_file = b.path("assets/chess_figures.png"),
+    });
     const exe = b.addExecutable(.{
         .name = "chessfrontend",
         .root_module = module,
