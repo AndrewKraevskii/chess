@@ -460,9 +460,10 @@ pub fn main(init: std.process.Init) !void {
 
     const mode = selectMode() catch return;
     var uci_read_buffer: [0x1000]u8 = undefined;
+    var uci_write_buffer: [0x1000]u8 = undefined;
 
     while (!rl.windowShouldClose()) {
-        var uci = try Uci.connect(alloc, io, &uci_read_buffer, engine_path);
+        var uci = try Uci.connect(io, &uci_read_buffer, &uci_write_buffer, engine_path);
         defer {
             std.log.info("Exiting game loop", .{});
             uci.quit() catch |e| {

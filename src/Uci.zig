@@ -10,22 +10,24 @@ engine_process: std.process.Child,
 promise: ?MovePromise,
 group: Io.Group,
 reader: Io.File.Reader,
+writer: Io.File.Writer,
 
-pub fn connect(arena: std.mem.Allocator, io: Io, reader_buffer: []u8, engine_path: []const u8) !@This() {
+pub fn connect(io: Io, reader_buffer: []u8, writer_buffer: []u8, engine_path: []const u8) !@This() {
     const child = try std.process.spawn(io, .{
         .argv = &.{engine_path},
         .stderr = .ignore,
         .stdin = .pipe,
         .stdout = .pipe,
     });
-    _ = arena;
     const reader = child.stdout.?.reader(io, reader_buffer);
+    const writer = child.stdin.?.writer(io, writer_buffer);
 
     return .{
         .io = io,
         .engine_process = child,
         .promise = null,
         .group = .init,
+        .writer = writer,
         .reader = reader,
     };
 }
@@ -87,44 +89,24 @@ pub fn setPosition(self: *@This(), board: ChessBoard) !void {
         try board.writeFen(&fixed);
         std.log.debug("set position: {s}", .{fixed.buffered()});
     }
-    const io = self.io;
-    var buffer: [0x1000]u8 = undefined;
-    var writer = self.engine_process.stdin.?.writer(io, &buffer);
-
-    try writer.interface.writeAll("position fen ");
-    try board.writeFen(&writer.interface);
-    try writer.interface.writeAll("\n");
-    try writer.flush();
+    try uci2.setPosition(&self.writer.interface, board);
+    try self.writer.interface.flush();
 }
 
 pub fn quit(self: *@This()) !void {
-    try self.engine_process.stdin.?.writeStreamingAll(self.io, "quit\n");
+    try self.writer.interface.writeAll("quit\n");
+    try self.writer.interface.flush();
     _ = try self.engine_process.wait(self.io);
 
     self.group.cancel(self.io);
     std.log.info("quit engine", .{});
 }
 
-const GoConfig = struct {
-    // searchmoves: []const Move = &.{},
-    // ponde: void = {},
-    // wtime: void = {},
-    // btime: void = {},
-    // winc: void = {},
-    // binc: void = {},
-    // movestogo: void = {},
-    depth: u8,
-    // nodes: void = {},
-    // mate: void = {},
-    // movetime: void = {},
-    // infinit: void = {},
-};
+const GoConfig = uci2.GoConfig;
 
-pub fn go(self: *@This(), config: GoConfig) !void {
-    std.log.debug("go", .{});
-    var writer = self.engine_process.stdin.?.writer(self.io, &.{});
-    try writer.interface.print("go depth {d}\n", .{config.depth});
-    try writer.interface.flush();
+pub fn go(self: *@This(), config: uci2.GoConfig) !void {
+    try uci2.go(&self.writer.interface, config);
+    try self.writer.interface.flush();
 }
 
 test {

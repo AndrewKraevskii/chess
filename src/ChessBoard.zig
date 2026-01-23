@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const ChessBoard = @This();
+// fields here are orderd same as in FEN string.
 
 cells: [8][8]?PieceWithSide,
 turn: Side,

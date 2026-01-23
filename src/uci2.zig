@@ -15,11 +15,30 @@ pub fn init(stdin: *Reader, stdout: *Writer) void {
     };
 }
 
-fn setPosition(w: *Writer, c: ChessBoard) !void {
+pub fn setPosition(w: *Writer, c: ChessBoard) !void {
     try w.writeAll("position fen ");
     try c.writeFen(w);
     try w.writeAll("\n");
-    try w.flush();
+}
+
+pub const GoConfig = struct {
+    // searchmoves: []const Move = &.{},
+    // ponde: void = {},
+    // wtime: void = {},
+    // btime: void = {},
+    // winc: void = {},
+    // binc: void = {},
+    // movestogo: void = {},
+    depth: u8,
+    // nodes: void = {},
+    // mate: void = {},
+    // movetime: void = {},
+    // infinit: void = {},
+};
+
+pub fn go(w: *Writer, config: GoConfig) !void {
+    std.log.debug("go", .{});
+    try w.print("go depth {d}\n", .{config.depth});
 }
 
 const Command = union(enum) {
@@ -131,6 +150,7 @@ pub fn getCommand(reader: *Reader) error{ ReadFailed, StreamTooLong }!?Command {
         comptime unreachable;
     }
 }
+
 test {
     var reader: Reader = .fixed(
         \\id name Test
