@@ -89,7 +89,7 @@ pub fn getCommand(reader: *Reader) error{ ReadFailed, StreamTooLong }!?Command {
         const token_str = tokens.next() orelse unreachable;
 
         const token = std.meta.stringToEnum(std.meta.Tag(Command), token_str) orelse {
-            log.err("got unknown token: {s}", .{token_str});
+            log.info("got unknown token: {s}", .{token_str});
             continue;
         };
         switch (token) {
@@ -138,8 +138,15 @@ test {
         \\hellow
         \\option
     );
+    var i: usize = 0;
+    var expected: []const std.meta.Tag(Command) = &.{
+        .id,
+        .id,
+        .option,
+    };
     while (try getCommand(&reader)) |token| {
-        log.err("{any}\n", .{token});
+        try std.testing.expectEqual(expected[i], @as(std.meta.Tag(Command), (token)));
+        i += 1;
     }
 }
 
