@@ -65,7 +65,7 @@ const castle_squares: std.EnumArray(Side, std.EnumArray(CastleSide, struct { kin
             },
             .queen = .{
                 .king_destination = .fromString("c1".*),
-                .rook = .{ .from = .fromString("h1".*), .to = .fromString("f1".*) },
+                .rook = .{ .from = .fromString("a1".*), .to = .fromString("d1".*) },
             },
         },
     ),
@@ -77,7 +77,7 @@ const castle_squares: std.EnumArray(Side, std.EnumArray(CastleSide, struct { kin
             },
             .queen = .{
                 .king_destination = .fromString("c8".*),
-                .rook = .{ .from = .fromString("h8".*), .to = .fromString("f8".*) },
+                .rook = .{ .from = .fromString("a8".*), .to = .fromString("d8".*) },
             },
         },
     ),
