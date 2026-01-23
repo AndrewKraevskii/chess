@@ -122,7 +122,7 @@ pub fn applyMove(board: *ChessBoard, move: Move) void {
             if (move.distanceVertically() == 2) {
                 board.en_passant = move.from;
                 board.en_passant.?.row = @intCast((@as(u4, move.from.row) + move.to.row) >> 1);
-                std.log.debug("en_passant {s}", .{board.en_passant.?.serialize()});
+                std.log.debug("en_passant possible {s}", .{board.en_passant.?.serialize()});
             }
             board.halfmove_clock = 0;
         },

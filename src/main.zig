@@ -321,6 +321,7 @@ pub fn doChess(uci: *Uci, random: std.Random, io: Io, gpa: std.mem.Allocator, st
         { // draw
             rl.beginDrawing();
             defer rl.endDrawing();
+
             rl.clearBackground(.black);
 
             const side_length = @min(rlx.getScreenHeightf(), rlx.getScreenWidthf());
@@ -427,7 +428,6 @@ fn selectMode() error{WindowShouldClose}!PlayMode {
 pub fn main(init: std.process.Init) !void {
     const program_arena = init.arena.allocator();
     const alloc = program_arena;
-
     const io = init.io;
     // std.Io.Dir.self
     const self_path = try std.process.executableDirPathAlloc(io, alloc);
@@ -459,12 +459,17 @@ pub fn main(init: std.process.Init) !void {
     };
 
     const mode = selectMode() catch return;
+    var uci_read_buffer: [0x1000]u8 = undefined;
 
     while (!rl.windowShouldClose()) {
-        var uci = try Uci.connect(alloc, io, engine_path);
-        defer uci.close() catch |e| {
-            std.log.err("can't deinit engine: {s}", .{@errorName(e)});
-        };
+        var uci = try Uci.connect(alloc, io, &uci_read_buffer, engine_path);
+        defer {
+            std.log.info("Exiting game loop", .{});
+            uci.quit() catch |e| {
+                std.log.err("can't deinit engine: {s}", .{@errorName(e)});
+            };
+        }
+
         const result = doChess(
             &uci,
             random.random(),
@@ -504,5 +509,5 @@ pub fn main(init: std.process.Init) !void {
 
 test {
     _ = @import("Uci.zig");
-    _ = @import("Uci2.zig");
+    _ = @import("uci2.zig");
 }

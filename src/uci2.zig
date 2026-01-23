@@ -3,6 +3,7 @@ const Reader = std.Io.Reader;
 const Writer = std.Io.Writer;
 const ChessBoard = @import("ChessBoard.zig");
 const Move = ChessBoard.Move;
+const log = std.log.scoped(.uci2);
 
 reader: *Reader,
 writer: *Writer,
@@ -65,65 +66,71 @@ const Command = union(enum) {
     },
     // TODO: parse it property. For now i don't need to set any options.
     option: []const []const u8,
-
-    /// It expects inputs lines to be no bigger than Reader's buffer.
-    const Parser = struct {
-        reader: *Reader,
-
-        pub fn next(parser: *Parser) error{ ReadFailed, StreamTooLong }!?Command {
-            const r = parser.reader;
-
-            outer: while (true) {
-                // skip all whitespace chars
-                readerSkipNone(r, &std.ascii.whitespace) catch |e| switch (e) {
-                    error.EndOfStream => return null,
-                    error.ReadFailed => return error.ReadFailed,
-                };
-                // possible \r will be handled in future `next` call by `readerSkipNone`
-                const buffer = (try r.takeDelimiter('\n')) orelse return null;
-                var tokens = std.mem.tokenizeAny(u8, buffer, "\t ");
-                // we skipped all whitespace so its impossible to get nothing
-                const token_str = tokens.next() orelse unreachable;
-
-                const token = std.meta.stringToEnum(std.meta.Tag(Command), token_str) orelse {
-                    continue :outer;
-                };
-                switch (token) {
-                    inline .uciok, .readyok, .copyprotection, .registration => |t| return t,
-                    .id => {
-                        return .{ .id = .{
-                            .name = tokens.next() orelse continue,
-                            .author = tokens.next() orelse continue,
-                        } };
-                    },
-                    .bestmove => {
-                        const move = tokens.next() orelse continue;
-                        const ponder = ponder: {
-                            if (std.mem.eql(u8, tokens.next() orelse "", "ponder")) break :ponder null;
-                            break :ponder tokens.next();
-                        };
-                        return .{
-                            .bestmove = .{
-                                // TODO: this functions will panic with invalid input. Validate it before using.
-                                .move = Move.parse(move) catch continue,
-                                .ponder = if (ponder) |p| Move.parse(p) catch continue else null,
-                            },
-                        };
-                    },
-                    .info => {
-                        std.log.info("Recieved info: {s}", .{buffer});
-                        continue;
-                    },
-                    .option => {
-                        std.log.info("Recieved option: {s}", .{buffer});
-                        continue;
-                    },
-                }
-            }
-        }
-    };
 };
 
+/// It expects inputs lines to be no bigger than Reader's buffer.
+pub fn getCommand(reader: *Reader) error{ ReadFailed, StreamTooLong }!?Command {
+    const r = reader;
+
+    while (true) {
+        log.debug("get loop start", .{});
+        // skip all whitespace chars
+        readerSkipNone(r, &std.ascii.whitespace) catch |e| switch (e) {
+            error.EndOfStream => return null,
+            error.ReadFailed => return error.ReadFailed,
+        };
+        log.debug("skiped whitespace", .{});
+        // possible \r will be handled in future `next` call by `readerSkipNone`
+        const buffer = (try r.takeDelimiter('\n')) orelse return null;
+        log.debug("took untill delimiter", .{});
+        var tokens = std.mem.tokenizeAny(u8, buffer, "\t ");
+        log.debug("recieved string: {s}", .{buffer});
+        // we skipped all whitespace so its impossible to get nothing
+        const token_str = tokens.next() orelse unreachable;
+
+        const token = std.meta.stringToEnum(std.meta.Tag(Command), token_str) orelse {
+            log.err("got unknown token: {s}", .{token_str});
+            continue;
+        };
+        switch (token) {
+            inline .uciok, .readyok, .copyprotection, .registration => |t| return t,
+            .id => {
+                return .{ .id = .{
+                    .name = tokens.next() orelse continue,
+                    .author = tokens.next() orelse continue,
+                } };
+            },
+            .bestmove => {
+                const move = tokens.next() orelse continue;
+
+                if (std.mem.eql(u8, move, "(none)")) {
+                    return null;
+                }
+
+                const ponder = ponder: {
+                    if (!std.mem.eql(u8, tokens.next() orelse "", "ponder")) break :ponder null;
+                    break :ponder tokens.next() orelse continue;
+                };
+                return .{
+                    .bestmove = .{
+                        // TODO: this functions will panic with invalid input. Validate it before using.
+                        .move = Move.parse(move) catch continue,
+                        .ponder = if (ponder) |p| Move.parse(p) catch continue else null,
+                    },
+                };
+            },
+            .info => {
+                log.info("Recieved info: {s}", .{buffer});
+                continue;
+            },
+            .option => {
+                log.info("Recieved option: {s}", .{buffer});
+                continue;
+            },
+        }
+        comptime unreachable;
+    }
+}
 test {
     var reader: Reader = .fixed(
         \\id name Test
@@ -131,9 +138,8 @@ test {
         \\hellow
         \\option
     );
-    var parser: Command.Parser = .{ .reader = &reader };
-    while (try parser.next()) |token| {
-        std.log.err("{any}\n", .{token});
+    while (try getCommand(&reader)) |token| {
+        log.err("{any}\n", .{token});
     }
 }
 

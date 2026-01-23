@@ -1,15 +1,17 @@
 const std = @import("std");
 const ChessBoard = @import("ChessBoard.zig");
 const Uci = @This();
+const uci2 = @import("uci2.zig");
 const Move = ChessBoard.Move;
 const Io = std.Io;
 
 io: Io,
 engine_process: std.process.Child,
 promise: ?MovePromise,
-group: std.Io.Group,
+group: Io.Group,
+reader: Io.File.Reader,
 
-pub fn connect(arena: std.mem.Allocator, io: Io, engine_path: []const u8) !@This() {
+pub fn connect(arena: std.mem.Allocator, io: Io, reader_buffer: []u8, engine_path: []const u8) !@This() {
     const child = try std.process.spawn(io, .{
         .argv = &.{engine_path},
         .stderr = .ignore,
@@ -17,14 +19,14 @@ pub fn connect(arena: std.mem.Allocator, io: Io, engine_path: []const u8) !@This
         .stdout = .pipe,
     });
     _ = arena;
-    // child.stdin_behavior = .Pipe;
-    // child.stdout_behavior = .Pipe;
+    const reader = child.stdout.?.reader(io, reader_buffer);
 
     return .{
         .io = io,
         .engine_process = child,
         .promise = null,
         .group = .init,
+        .reader = reader,
     };
 }
 
@@ -66,31 +68,25 @@ pub fn getMoveAsync(self: *@This()) *MovePromise {
 }
 
 pub fn getMove(self: *@This()) !Move {
-    var buffer: [0x1000]u8 = undefined;
-    var reader = self.engine_process.stdout.?.reader(self.io, &buffer);
+    std.log.debug("getting move", .{});
     while (true) {
-        const line = try reader.interface.takeDelimiter('\n') orelse return error.EndOfGame;
-
-        if (std.mem.startsWith(u8, line, "bestmove ")) {
-            if (std.mem.startsWith(u8, line, "bestmove (none)")) return error.EndOfGame;
-
-            const move = std.mem.trimStart(u8, line["bestmove ".len..][0..], &std.ascii.whitespace);
-
-            const piece: ?ChessBoard.Piece = if (move.len >= 5 and std.ascii.isAlphabetic(move[4]))
-                ChessBoard.PieceWithSide.fromChar(move[4]).?.piece
-            else
-                null;
-
-            return .{
-                .from = .fromString(move[0..2].*),
-                .to = .fromString(move[2..4].*),
-                .promotion = piece,
-            };
+        const command = try uci2.getCommand(&self.reader.interface) orelse return error.EndOfGame;
+        if (command == .bestmove) {
+            std.log.info("from: {s} ", .{command.bestmove.move.from.serialize()});
+            std.log.info("to {s}\n", .{command.bestmove.move.to.serialize()});
+            return command.bestmove.move;
         }
+        std.log.debug("recieved: {t}", .{command});
     }
 }
 
 pub fn setPosition(self: *@This(), board: ChessBoard) !void {
+    {
+        var buffer: [0x100]u8 = undefined;
+        var fixed: std.Io.Writer = .fixed(&buffer);
+        try board.writeFen(&fixed);
+        std.log.debug("set position: {s}", .{fixed.buffered()});
+    }
     const io = self.io;
     var buffer: [0x1000]u8 = undefined;
     var writer = self.engine_process.stdin.?.writer(io, &buffer);
@@ -125,12 +121,10 @@ const GoConfig = struct {
 };
 
 pub fn go(self: *@This(), config: GoConfig) !void {
+    std.log.debug("go", .{});
     var writer = self.engine_process.stdin.?.writer(self.io, &.{});
     try writer.interface.print("go depth {d}\n", .{config.depth});
-}
-
-pub fn close(uci: *Uci) !void {
-    try uci.quit();
+    try writer.interface.flush();
 }
 
 test {
@@ -139,8 +133,9 @@ test {
     var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena_state.deinit();
 
-    var uci = try connect(arena_state.allocator(), std.testing.io, args.engine_path);
-    defer uci.close() catch {};
+    var buffer: [0x1000]u8 = undefined;
+    var uci = try connect(arena_state.allocator(), std.testing.io, &buffer, args.engine_path);
+    defer uci.quit() catch {};
 
     var board: ChessBoard = .init;
     while (true) {
