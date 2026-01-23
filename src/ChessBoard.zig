@@ -19,16 +19,16 @@ pub const Move = struct {
     to: Position,
     promotion: ?Piece = null,
 
-    pub fn parse(str: []const u8) Move {
-        std.debug.assert(str.len == 4 or str.len == 5);
+    pub fn parse(str: []const u8) error{Invalid}!Move {
+        if (!(str.len == 4 or str.len == 5)) return error.Invalid;
 
         var move: Move = .{
-            .from = .fromString(str[0..2]),
-            .to = .fromString(str[0..2]),
+            .from = try .fromStringFalible(str[0..2].*),
+            .to = try .fromStringFalible(str[2..4].*),
         };
 
-        if (std.len == 5) {
-            move = PieceWithSide.fromChar(str[4]).?.piece;
+        if (str.len == 5) {
+            move.promotion = (PieceWithSide.fromChar(str[4]) orelse return error.Invalid).piece;
         }
 
         return move;
@@ -183,6 +183,13 @@ pub const Position = struct {
         return .{
             .file = @intCast(str[0] - 'a'),
             .row = @intCast(str[1] - '1'),
+        };
+    }
+
+    pub fn fromStringFalible(str: [2]u8) !Position {
+        return .{
+            .file = std.math.cast(u3, str[0] -% 'a') orelse return error.Invalid,
+            .row = std.math.cast(u3, str[1] -% '1') orelse return error.Invalid,
         };
     }
 };

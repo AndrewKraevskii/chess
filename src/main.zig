@@ -503,4 +503,5 @@ pub fn main(init: std.process.Init) !void {
 
 test {
     _ = @import("Uci.zig");
+    _ = @import("Uci2.zig");
 }
