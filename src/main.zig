@@ -427,13 +427,25 @@ fn selectMode() error{WindowShouldClose}!PlayMode {
 
 pub fn main(init: std.process.Init) !void {
     const program_arena = init.arena.allocator();
-    const alloc = program_arena;
+    const arena = program_arena;
     const io = init.io;
-    // std.Io.Dir.self
-    const self_path = try std.process.executableDirPathAlloc(io, alloc);
-    const engine_path = try std.fs.path.join(alloc, &.{ self_path, "stockfish" });
+
+    const self_path = try std.process.executableDirPathAlloc(io, arena);
+    const engine_path = try std.fs.path.join(arena, &.{ self_path, "stockfish" });
 
     var random = std.Random.DefaultPrng.init(0);
+
+    var args = try init.minimal.args.iterateAllocator(arena);
+    const program_name = args.next() orelse @panic("No program name passed");
+    _ = program_name;
+
+    const mode_args: ?PlayMode = if (args.next()) |mode_text| blk: {
+        if (std.meta.stringToEnum(PlayMode, mode_text)) |mode| {
+            break :blk mode;
+        }
+        std.log.err("Expected one of eve,pvp,pve", .{});
+        return;
+    } else null;
 
     std.log.debug("{s}", .{engine_path});
     rl.setConfigFlags(.{
@@ -458,7 +470,7 @@ pub fn main(init: std.process.Init) !void {
         .border_color = .blue,
     };
 
-    const mode = selectMode() catch return;
+    const mode = mode_args orelse selectMode() catch return;
     var uci_read_buffer: [0x1000]u8 = undefined;
     var uci_write_buffer: [0x1000]u8 = undefined;
 
