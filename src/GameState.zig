@@ -130,6 +130,14 @@ pub fn applyMove(board: *GameState, move: Move) void {
             }
             board.halfmove_clock = 0;
         },
+        .rook => {
+            // if rook moves castling options is removed.
+            for ([_]CastleSide{ .queen, .king }) |castle_side| {
+                if (std.meta.eql(castle_squares.get(side).get(castle_side).rook.from, move.from)) {
+                    board.can_castle.getPtr(side).set(castle_side, false);
+                }
+            }
+        },
         else => {
             board.en_passant = null;
         },
