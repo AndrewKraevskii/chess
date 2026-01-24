@@ -43,7 +43,7 @@ pub const Move = struct {
     }
 };
 
-const CastleSide = enum {
+pub const CastleSide = enum {
     king,
     queen,
 };
@@ -84,81 +84,8 @@ pub fn get(board: *GameState, pos: Position) *?Piece {
     return &board.cells[7 - pos.row][pos.file];
 }
 
-pub fn fromFen(fen_string: []const u8) error{InvalidFen}!GameState {
-    var tokens = std.mem.tokenizeScalar(u8, fen_string, ' ');
-    const board_str = tokens.next() orelse return error.InvalidFen;
-    const turn = tokens.next() orelse return error.InvalidFen;
-    const castle = tokens.next() orelse return error.InvalidFen;
-    const en_passant = tokens.next() orelse return error.InvalidFen;
-    const half_turn = tokens.next() orelse return error.InvalidFen;
-    const full_turn = tokens.next() orelse return error.InvalidFen;
-    if (tokens.next() != null) return error.InvalidFen;
-
-    // fen string can't contain 0s in board part. So it is explicity excluded.
-    if (std.mem.findNone(u8, board_str, "rnbqkbnrRNBQKBNRpP12345678/")) |pos| {
-        std.log.err("Contains invalid character: {c}", .{board_str[pos]});
-        return error.InvalidFen;
-    }
-    var board: GameState = undefined;
-
-    {
-        var rows_strings = std.mem.tokenizeScalar(u8, board_str, '/');
-        for (&board.cells) |*row| {
-            const row_string = rows_strings.next() orelse return error.InvalidFen;
-            @memset(row, null);
-            var row_pos: u4 = 0;
-            for (row_string) |char| {
-                if ('1' <= char and char <= '8') {
-                    row_pos += @intCast(char - '1');
-                    row_pos += 1;
-                    continue;
-                }
-                if (row_pos >= row.len) return error.InvalidFen;
-                row[row_pos] = .fromChar(char);
-                row_pos += 1;
-            }
-        }
-        if (rows_strings.next() != null) return error.InvalidFen;
-    }
-
-    std.debug.assert(turn.len > 0); // tokenize always returns non empty strings.
-
-    if (turn.len != 1) return error.InvalidFen;
-    board.turn = Side.fromChar(turn[0]) orelse return error.InvalidFen;
-    board.can_castle = .init(.{
-        .white = .init(.{
-            .queen = std.mem.findScalar(u8, castle, 'Q') != null,
-            .king = std.mem.findScalar(u8, castle, 'K') != null,
-        }),
-        .black = .init(.{
-            .queen = std.mem.findScalar(u8, castle, 'q') != null,
-            .king = std.mem.findScalar(u8, castle, 'k') != null,
-        }),
-    });
-
-    if (std.mem.eql(u8, en_passant, "-")) {
-        board.en_passant = null;
-    } else if (en_passant.len == 2) {
-        board.en_passant = Position.fromStringFalible(en_passant[0..2].*) catch return error.InvalidFen;
-    } else {
-        return error.InvalidFen;
-    }
-
-    board.halfmove_clock = std.fmt.parseInt(u32, half_turn, 10) catch return error.InvalidFen;
-    board.moves = std.fmt.parseInt(u32, full_turn, 10) catch return error.InvalidFen;
-
-    return board;
-}
-
-test fromFen {
-    const chess_board: GameState = try .fromFen(
-        \\rnbqkbnr/p7/8/8/8/8/PPPPPPPP/RNBQKBNR b Kq h8 10 100
-    );
-    var buffer: [0x1000]u8 = undefined;
-    var bw: std.Io.Writer = .fixed(&buffer);
-    try chess_board.writeFen(&bw);
-    try std.testing.expectEqualSlices(u8, "rnbqkbnr/p7/8/8/8/8/PPPPPPPP/RNBQKBNR b Kq h8 10 100", bw.buffered());
-}
+pub const writeFen = @import("fen.zig").serialize;
+const parse = @import("fen.zig").parse;
 
 pub fn applyMove(board: *GameState, move: Move) void {
     if (std.meta.eql(move.from, move.to)) {
@@ -376,7 +303,7 @@ fn kingInCheck(board: *GameState, side: Side) bool {
                 .row = @intCast(y),
                 .file = @intCast(x),
             };
-            if (board.isMovePossibleWithNoCheck(pos, king_pos)) return true;
+            if (board.isMovePossibleIgnoringKingInCheck(pos, king_pos)) return true;
         }
     }
     return false;
@@ -388,17 +315,18 @@ const pawns_start_row: std.EnumArray(Side, u3) = .init(.{
 });
 
 pub fn isMovePossible(board: *GameState, from: Position, to: Position) bool {
-    if (!board.isMovePossibleWithNoCheck(from, to)) return false;
+    if (!board.isMovePossibleIgnoringKingInCheck(from, to)) return false;
 
     var board_copy = board.*;
     board_copy.applyMove(.{ .from = from, .to = to });
     return !board_copy.kingInCheck(board.turn);
 }
 
-fn isMovePossibleWithNoCheck(board: *GameState, from: Position, to: Position) bool {
+fn isMovePossibleIgnoringKingInCheck(board: *GameState, from: Position, to: Position) bool {
     const piece = board.get(from).* orelse return false;
 
-    if (board.get(to).*) |targeted_piece| {
+    const target_piece = board.get(to);
+    if (target_piece.*) |targeted_piece| {
         if (targeted_piece.side == piece.side) return false;
     }
 
@@ -442,13 +370,13 @@ fn isMovePossibleWithNoCheck(board: *GameState, from: Position, to: Position) bo
             if (board.turn == .white and from.row > to.row) return false;
             if (board.turn == .black and from.row < to.row) return false;
             if (dh == 0 and dv == 1) {
-                return board.get(to).* == null;
+                return target_piece.* == null;
             }
             if (dh == 0 and dv == 2 and pawns_start_row.get(board.turn) == from.row) {
                 return board.get(.{
                     .file = from.file,
                     .row = if (board.turn == .white) from.row + 1 else from.row - 1,
-                }).* == null and board.get(to).* == null;
+                }).* == null and target_piece.* == null;
             }
             if (dh == 1 and dv == 1) {
                 if (board.en_passant) |en_passant| {
@@ -456,74 +384,11 @@ fn isMovePossibleWithNoCheck(board: *GameState, from: Position, to: Position) bo
                         return true;
                     }
                 }
-                return board.get(to).* != null;
+                return target_piece.* != null;
             }
             return false;
         },
     }
-}
-
-pub fn writeFen(self: *const GameState, writer: *std.Io.Writer) !void {
-    // write board positions
-    for (self.cells, 0..) |row, index| {
-        var running_empties: u4 = 0;
-        for (row) |empty_or_piece| {
-            if (empty_or_piece) |piece| {
-                std.debug.assert(running_empties <= 8);
-                if (running_empties == 0) {
-                    try writer.writeByte(piece.toChar());
-                } else {
-                    try writer.print("{d}", .{running_empties});
-                    try writer.writeByte(piece.toChar());
-                    running_empties = 0;
-                }
-            } else {
-                running_empties += 1;
-            }
-        }
-        if (running_empties != 0) {
-            try writer.print("{d}", .{running_empties});
-        }
-        if (index != 7)
-            try writer.writeByte('/');
-    }
-
-    // write current turn
-    try writer.print(" {c}", .{self.turn.toChar()});
-
-    // write castle
-    castle: inline for ([_]Side{ .white, .black }) |side| {
-        inline for ([_]CastleSide{ .king, .queen }) |castle_side| {
-            if (self.can_castle.get(side).get(castle_side)) {
-                try writer.writeAll(" ");
-                if (self.can_castle.get(.white).get(.king)) {
-                    try writer.writeAll("K");
-                }
-                if (self.can_castle.get(.white).get(.queen)) {
-                    try writer.writeAll("Q");
-                }
-                if (self.can_castle.get(.black).get(.king)) {
-                    try writer.writeAll("k");
-                }
-                if (self.can_castle.get(.black).get(.queen)) {
-                    try writer.writeAll("q");
-                }
-                break :castle;
-            }
-        }
-    } else {
-        try writer.writeAll(" -");
-    }
-
-    // en passant
-    if (self.en_passant) |en_passant| {
-        try writer.print(" {s}", .{en_passant.serialize()});
-    } else {
-        try writer.writeAll(" -");
-    }
-
-    // number of moves
-    try writer.print(" {d} {d}", .{ self.halfmove_clock, self.moves });
 }
 
 pub const init = GameState{
