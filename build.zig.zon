@@ -5,14 +5,12 @@
     .minimum_zig_version = "0.16.0-dev.2261+d6b3dd25a",
     .dependencies = .{
         .Stockfish = .{
-            // .url = "git+https://github.com/allyourcodebase/Stockfish#6b88b7c0a226fdaf85f88c530732f681aff71b24",
-            // .hash = "stockfish-17.0.0-Ccetzo6aAACfvfQOo3_DgAmpoQ98T_ozZu7-WFa5vtpo",
-            .path = "../Stockfish",
+            .url = "git+https://github.com/AndrewKraevskii/Stockfish?ref=update_to_0.15.2#3ab2e1e7c7d0f5f894e04ad424838be302b6e670",
+            .hash = "stockfish-17.0.0-CcetzuWcAAA3mGeQ9t0ybUgcd6IX__pHK2tNt4z2b88R",
         },
         .raylib = .{
-            // .url = "git+https://github.com/mdm5995/raylib-zig.git#a4d18b2d1cf8fdddec68b5b084535fca0475f466",
-            // .hash = "raylib_zig-5.6.0-dev-KE8REL5MBQAf3p497t52Xw9P7ojndIkVOWPXnLiLLw2P",
-            .path = "../../raylib-zig",
+            .url = "git+https://github.com/AndrewKraevskii/raylib-zig.git?ref=update_to_zig_0.16.0-dev.2261+d6b3dd25a#0239852a4029d575e59e9d04182426ce74edcaa6",
+            .hash = "raylib_zig-5.6.0-dev-KE8RENhNBQAQvD7_nV8CGnOabKs7bO-S4b09R520bTYC",
         },
     },
     .paths = .{
