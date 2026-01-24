@@ -108,18 +108,20 @@ pub fn go(self: *@This(), config: uci2.GoConfig) !void {
 }
 
 test {
-    if (true) return error.SkipZigTest;
+    // if (true) return error.SkipZigTest;
     const args = @import("args");
 
     var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena_state.deinit();
 
-    var buffer: [0x1000]u8 = undefined;
-    var uci = try connect(arena_state.allocator(), std.testing.io, &buffer, args.engine_path);
+    var reader_buffer: [0x1000]u8 = undefined;
+    var writer_buffer: [0x1000]u8 = undefined;
+    var uci = try connect(std.testing.io, &reader_buffer, &writer_buffer, args.engine_path);
     defer uci.quit() catch {};
 
     var board: GameState = .init;
     while (true) {
+        if (board.result()) |_| break;
         try uci.setPosition(board);
         try uci.go(.{ .depth = 3 });
         const move = uci.getMove() catch |e| switch (e) {

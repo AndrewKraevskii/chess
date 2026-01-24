@@ -12,8 +12,34 @@ can_castle: std.EnumArray(Side, std.EnumArray(CastleSide, bool)),
 /// . -> E
 /// .    p
 en_passant: ?Position,
+/// Tracks number of moves since last pawn movment or piece capture.
 halfmove_clock: u32,
 moves: u32,
+
+/// Maximum number of moves.
+/// https://lichess.org/@/Tobs40/blog/why-a-reachable-position-can-have-at-most-218-playable-moves/a5xdxeqs#other-stuff-solved-along-the-way
+pub const max_moves = 288;
+
+pub const init: GameState = .{
+    .cells = .{
+        .{ .fromChar('r'), .fromChar('n'), .fromChar('b'), .fromChar('q'), .fromChar('k'), .fromChar('b'), .fromChar('n'), .fromChar('r') },
+        .{ .fromChar('p'), .fromChar('p'), .fromChar('p'), .fromChar('p'), .fromChar('p'), .fromChar('p'), .fromChar('p'), .fromChar('p') },
+        .{ .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.') },
+        .{ .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.') },
+        .{ .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.') },
+        .{ .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.') },
+        .{ .fromChar('P'), .fromChar('P'), .fromChar('P'), .fromChar('P'), .fromChar('P'), .fromChar('P'), .fromChar('P'), .fromChar('P') },
+        .{ .fromChar('R'), .fromChar('N'), .fromChar('B'), .fromChar('Q'), .fromChar('K'), .fromChar('B'), .fromChar('N'), .fromChar('R') },
+    },
+    .turn = .white,
+    .moves = 0,
+    .halfmove_clock = 0,
+    .can_castle = .initFill(.init(.{
+        .queen = true,
+        .king = true,
+    })),
+    .en_passant = null,
+};
 
 pub const Move = struct {
     from: Position,
@@ -80,83 +106,25 @@ const castle_squares: std.EnumArray(Side, std.EnumArray(CastleSide, struct { kin
     ),
 });
 
+const State = enum {
+    draw,
+    white_won,
+    black_won,
+};
+
+pub fn result(board: *GameState) ?State {
+    if (board.halfmove_clock > 50) {
+        return .draw;
+    }
+    return null;
+}
+
 pub fn get(board: *GameState, pos: Position) *?Piece {
     return &board.cells[7 - pos.row][pos.file];
 }
 
 pub const writeFen = @import("fen.zig").serialize;
 const parse = @import("fen.zig").parse;
-
-pub fn applyMove(board: *GameState, move: Move) void {
-    if (std.meta.eql(move.from, move.to)) {
-        std.log.err("{s} {s}", .{ move.from.serialize(), move.to.serialize() });
-        std.debug.assert(!std.meta.eql(move.from, move.to));
-    }
-
-    const side = board.turn;
-
-    const from = board.get(move.from);
-    const to = board.get(move.to);
-    switch (from.*.?.piece) {
-        .king => if (std.meta.eql(move.from, king_start_position.get(board.turn))) {
-            const castle_squares_for_current_side = castle_squares.get(side);
-
-            inline for ([_]CastleSide{ .king, .queen }) |castle_side| {
-                if (std.meta.eql(castle_squares_for_current_side.get(castle_side).king_destination, move.to)) {
-                    const to_rook = board.get(castle_squares_for_current_side.get(castle_side).rook.to);
-                    const from_rook = board.get(castle_squares_for_current_side.get(castle_side).rook.from);
-                    to_rook.* = from_rook.*;
-                    from_rook.* = null;
-                    board.can_castle.set(side, .initFill(false));
-                    break;
-                }
-            }
-            board.en_passant = null;
-        },
-        .pawn => {
-            if (board.en_passant) |en_passant| {
-                if (std.meta.eql(en_passant, move.to)) {
-                    std.log.debug("umnam", .{});
-                    board.get(.{
-                        .row = move.from.row,
-                        .file = move.to.file,
-                    }).* = null;
-                }
-            }
-            if (move.distanceVertically() == 2) {
-                board.en_passant = move.from;
-                board.en_passant.?.row = @intCast((@as(u4, move.from.row) + move.to.row) >> 1);
-                std.log.debug("en_passant possible {s}", .{board.en_passant.?.serialize()});
-            }
-            board.halfmove_clock = 0;
-        },
-        .rook => {
-            // if rook moves castling options is removed.
-            for ([_]CastleSide{ .queen, .king }) |castle_side| {
-                if (std.meta.eql(castle_squares.get(side).get(castle_side).rook.from, move.from)) {
-                    board.can_castle.getPtr(side).set(castle_side, false);
-                }
-            }
-        },
-        else => {
-            board.en_passant = null;
-        },
-    }
-
-    board.turn = board.turn.next();
-    board.moves += 1;
-
-    if (to.* != null) {
-        board.halfmove_clock = 0;
-    }
-    board.halfmove_clock += 1;
-
-    to.* = from.*;
-    if (move.promotion) |promotion| {
-        to.*.?.piece = promotion;
-    }
-    from.* = null;
-}
 
 pub const Side = enum(u1) {
     white,
@@ -260,6 +228,77 @@ pub const Piece = packed struct {
     }
 };
 
+pub fn applyMove(board: *GameState, move: Move) void {
+    if (std.meta.eql(move.from, move.to)) {
+        std.log.err("{s} {s}", .{ move.from.serialize(), move.to.serialize() });
+        std.debug.assert(!std.meta.eql(move.from, move.to));
+    }
+
+    const side = board.turn;
+
+    const from = board.get(move.from);
+    const to = board.get(move.to);
+    switch (from.*.?.piece) {
+        .king => if (std.meta.eql(move.from, king_start_position.get(board.turn))) {
+            const castle_squares_for_current_side = castle_squares.get(side);
+
+            inline for ([_]CastleSide{ .king, .queen }) |castle_side| {
+                if (std.meta.eql(castle_squares_for_current_side.get(castle_side).king_destination, move.to)) {
+                    const to_rook = board.get(castle_squares_for_current_side.get(castle_side).rook.to);
+                    const from_rook = board.get(castle_squares_for_current_side.get(castle_side).rook.from);
+                    to_rook.* = from_rook.*;
+                    from_rook.* = null;
+                    board.can_castle.set(side, .initFill(false));
+                    break;
+                }
+            }
+            board.en_passant = null;
+        },
+        .pawn => {
+            if (board.en_passant) |en_passant| {
+                if (std.meta.eql(en_passant, move.to)) {
+                    std.log.debug("umnam", .{});
+                    board.get(.{
+                        .row = move.from.row,
+                        .file = move.to.file,
+                    }).* = null;
+                }
+            }
+            if (move.distanceVertically() == 2) {
+                board.en_passant = move.from;
+                board.en_passant.?.row = @intCast((@as(u4, move.from.row) + move.to.row) >> 1);
+                std.log.debug("en_passant possible {s}", .{board.en_passant.?.serialize()});
+            }
+            board.halfmove_clock = 0;
+        },
+        .rook => {
+            // if rook moves castling options is removed.
+            for ([_]CastleSide{ .queen, .king }) |castle_side| {
+                if (std.meta.eql(castle_squares.get(side).get(castle_side).rook.from, move.from)) {
+                    board.can_castle.getPtr(side).set(castle_side, false);
+                }
+            }
+        },
+        else => {
+            board.en_passant = null;
+        },
+    }
+
+    board.turn = board.turn.next();
+    board.moves += 1;
+
+    if (to.* != null) {
+        board.halfmove_clock = 0;
+    }
+    board.halfmove_clock += 1;
+
+    to.* = from.*;
+    if (move.promotion) |promotion| {
+        to.*.?.piece = promotion;
+    }
+    from.* = null;
+}
+
 fn isRookMovePossible(board: *GameState, from: Position, to: Position, dv: u3, dh: u3) bool {
     if (dv != 0 and dh != 0) return false;
 
@@ -330,6 +369,23 @@ pub fn isMovePossible(board: *GameState, from: Position, to: Position) bool {
     return !board_copy.kingInCheck(board.turn);
 }
 
+test "Usage" {
+    if (true) return error.SkipZigTest;
+    var game_state: GameState = .init;
+
+    while (true) {
+        var moves_buffer: [GameState.max_moves]GameState.Move = undefined;
+        const moves = game_state.getMoves(&moves_buffer);
+        _ = moves; // autofix
+
+        const selected_move: Move = undefined;
+        game_state.applyMove(selected_move);
+        if (game_state.isCheckMate()) {
+            break;
+        }
+    }
+}
+
 fn isMovePossibleIgnoringKingInCheck(board: *GameState, from: Position, to: Position) bool {
     const piece = board.get(from).* orelse return false;
 
@@ -342,7 +398,12 @@ fn isMovePossibleIgnoringKingInCheck(board: *GameState, from: Position, to: Posi
     const dv = move.distanceVertically();
     const dh = move.distanceHorisontaly();
     piece: switch (piece.piece) {
-        .king => return dv <= 1 and dh <= 1,
+        .king => {
+            if (dv <= 1 and dh <= 1) return true;
+            // implement castling here.
+
+            return false;
+        },
         .knight => return @max(dv, dh) == 2 and @min(dv, dh) == 1,
         .bishop => {
             if (dv != dh) return false;
@@ -398,27 +459,6 @@ fn isMovePossibleIgnoringKingInCheck(board: *GameState, from: Position, to: Posi
         },
     }
 }
-
-pub const init = GameState{
-    .cells = .{
-        .{ .fromChar('r'), .fromChar('n'), .fromChar('b'), .fromChar('q'), .fromChar('k'), .fromChar('b'), .fromChar('n'), .fromChar('r') },
-        .{ .fromChar('p'), .fromChar('p'), .fromChar('p'), .fromChar('p'), .fromChar('p'), .fromChar('p'), .fromChar('p'), .fromChar('p') },
-        .{ .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.') },
-        .{ .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.') },
-        .{ .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.') },
-        .{ .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.'), .fromChar('.') },
-        .{ .fromChar('P'), .fromChar('P'), .fromChar('P'), .fromChar('P'), .fromChar('P'), .fromChar('P'), .fromChar('P'), .fromChar('P') },
-        .{ .fromChar('R'), .fromChar('N'), .fromChar('B'), .fromChar('Q'), .fromChar('K'), .fromChar('B'), .fromChar('N'), .fromChar('R') },
-    },
-    .turn = .white,
-    .moves = 0,
-    .halfmove_clock = 0,
-    .can_castle = .initFill(.init(.{
-        .queen = true,
-        .king = true,
-    })),
-    .en_passant = null,
-};
 
 test {
     var buffer: [0x1000]u8 = undefined;

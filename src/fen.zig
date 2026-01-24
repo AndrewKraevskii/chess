@@ -133,7 +133,7 @@ pub fn parse(fen_string: []const u8) error{InvalidFen}!GameState {
 }
 
 test parse {
-    const chess_board: GameState = try .fromFen(
+    const chess_board: GameState = try parse(
         \\rnbqkbnr/p7/8/8/8/8/PPPPPPPP/RNBQKBNR b Kq h8 10 100
     );
     var buffer: [0x1000]u8 = undefined;

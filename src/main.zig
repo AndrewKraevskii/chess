@@ -220,9 +220,12 @@ pub fn doChess(uci: *Uci, random: std.Random, io: Io, gpa: std.mem.Allocator, st
     };
 
     while (!rl.windowShouldClose()) {
-        if (board.halfmove_clock > 50) {
-            return .draw;
-        }
+        if (board.result()) |res| return switch (res) {
+            .draw => .draw,
+            .white_won => .white_won,
+            .black_won => .black_won,
+        };
+
         if (rl.isKeyPressed(.space)) {
             paused = !paused;
         }
