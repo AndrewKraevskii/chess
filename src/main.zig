@@ -1,7 +1,7 @@
 const std = @import("std");
 const rl = @import("raylib");
 const gui = @import("raygui");
-const ChessBoard = @import("ChessBoard.zig");
+const GameState = @import("GameState.zig");
 const rlx = @import("raylibx.zig");
 const Uci = @import("Uci.zig");
 const Io = std.Io;
@@ -12,7 +12,7 @@ const PlayMode = enum {
     pvp,
 };
 
-fn pieceIndexInAtlas(piece: ChessBoard.Piece) f32 {
+fn pieceIndexInAtlas(piece: GameState.Piece.Type) f32 {
     return switch (piece) {
         .pawn => 0,
         .rook => 1,
@@ -32,7 +32,7 @@ fn rectFromPositionAndSize(pos: rl.Vector2, size: rl.Vector2) rl.Rectangle {
     };
 }
 
-fn drawPiece(@"type": ChessBoard.PieceWithSide, dest: rl.Rectangle, style: ChessBoardDisplayStyle) void {
+fn drawPiece(@"type": GameState.Piece, dest: rl.Rectangle, style: GameStateDisplayStyle) void {
     style.atlas.drawPro(
         .{
             .x = pieceIndexInAtlas(@"type".piece) * 16,
@@ -47,7 +47,7 @@ fn drawPiece(@"type": ChessBoard.PieceWithSide, dest: rl.Rectangle, style: Chess
     );
 }
 
-const ChessBoardDisplayStyle = struct {
+const GameStateDisplayStyle = struct {
     font: rl.Font,
     padding: f32,
     atlas: rl.Texture,
@@ -59,8 +59,8 @@ const ChessBoardDisplayStyle = struct {
 };
 
 const Selection = struct {
-    hovered_square: ?ChessBoard.Position,
-    selected_square: ?ChessBoard.Position,
+    hovered_square: ?GameState.Position,
+    selected_square: ?GameState.Position,
 
     pub const @"null": Selection = .{
         .hovered_square = null,
@@ -68,7 +68,7 @@ const Selection = struct {
     };
 };
 
-fn drawChessBoard(board: ChessBoard, dest: rl.Rectangle, selection: Selection, style: ChessBoardDisplayStyle) void {
+fn drawGameState(board: GameState, dest: rl.Rectangle, selection: Selection, style: GameStateDisplayStyle) void {
     const cell_size = dest.width / 8;
     var y: f32 = dest.y;
     var parity: u1 = 1;
@@ -112,8 +112,8 @@ fn drawChessBoard(board: ChessBoard, dest: rl.Rectangle, selection: Selection, s
 }
 
 const Animation = struct {
-    piece: ChessBoard.PieceWithSide,
-    move: ChessBoard.Move,
+    piece: GameState.Piece,
+    move: GameState.Move,
     // range [0;1]
     progress: f32,
 
@@ -186,12 +186,12 @@ pub fn History(comptime Item: type) type {
 
 var animation_speed: f32 = 10;
 
-pub fn doChess(uci: *Uci, random: std.Random, io: Io, gpa: std.mem.Allocator, style: ChessBoardDisplayStyle, play_mode: PlayMode) !enum { white_won, black_won, draw } {
+pub fn doChess(uci: *Uci, random: std.Random, io: Io, gpa: std.mem.Allocator, style: GameStateDisplayStyle, play_mode: PlayMode) !enum { white_won, black_won, draw } {
     _ = io; // autofix
-    var history: History(ChessBoard) = try .init(gpa, 0x200);
+    var history: History(GameState) = try .init(gpa, 0x200);
     defer history.deinit(gpa);
 
-    var board: ChessBoard = .init;
+    var board: GameState = .init;
 
     var engine_async_move: ?*Uci.MovePromise = null;
 
@@ -330,7 +330,7 @@ pub fn doChess(uci: *Uci, random: std.Random, io: Io, gpa: std.mem.Allocator, st
             if (animation) |anim| {
                 var board_to_draw = board;
                 board_to_draw.get(anim.move.from).* = null;
-                drawChessBoard(
+                drawGameState(
                     board_to_draw,
                     rlx.screenSquare(),
                     if (whose_turn == .player) whose_turn.player else .{ .hovered_square = null, .selected_square = null },
@@ -345,7 +345,7 @@ pub fn doChess(uci: *Uci, random: std.Random, io: Io, gpa: std.mem.Allocator, st
                     style,
                 );
             } else {
-                drawChessBoard(board, rlx.screenSquare(), if (whose_turn == .player) whose_turn.player else .null, style);
+                drawGameState(board, rlx.screenSquare(), if (whose_turn == .player) whose_turn.player else .null, style);
                 if (whose_turn == .player) {
                     if (whose_turn.player.selected_square) |selected_square| {
                         for (0..8) |y| {
@@ -459,7 +459,7 @@ pub fn main(init: std.process.Init) !void {
     const image = try rl.loadImageFromMemory(".png", @embedFile("chess_figures"));
     const chess_figures = try rl.loadTextureFromImage(image);
     defer chess_figures.unload();
-    const style: ChessBoardDisplayStyle = .{
+    const style: GameStateDisplayStyle = .{
         .font = try rl.getFontDefault(),
         .padding = 4,
         .white_square_color = .white,
@@ -508,7 +508,7 @@ pub fn main(init: std.process.Init) !void {
             rl.beginDrawing();
             defer rl.endDrawing();
             rl.drawText(text, @intFromFloat(text_pos.x), @intFromFloat(text_pos.y), font_size, .red);
-            const side: ChessBoard.Side = switch (result) {
+            const side: GameState.Side = switch (result) {
                 .draw => break :draw_winner,
                 .white_won => .white,
                 .black_won => .black,

@@ -1,9 +1,9 @@
 const std = @import("std");
 
-const ChessBoard = @This();
+const GameState = @This();
 // fields here are orderd same as in FEN string.
 
-cells: [8][8]?PieceWithSide,
+cells: [8][8]?Piece,
 turn: Side,
 can_castle: std.EnumArray(Side, std.EnumArray(CastleSide, bool)),
 /// Points to square which can be eaten by pawn.
@@ -18,7 +18,7 @@ moves: u32,
 pub const Move = struct {
     from: Position,
     to: Position,
-    promotion: ?Piece = null,
+    promotion: ?Piece.Type = null,
 
     pub fn parse(str: []const u8) error{Invalid}!Move {
         if (!(str.len == 4 or str.len == 5)) return error.Invalid;
@@ -29,7 +29,7 @@ pub const Move = struct {
         };
 
         if (str.len == 5) {
-            move.promotion = (PieceWithSide.fromChar(str[4]) orelse return error.Invalid).piece;
+            move.promotion = (Piece.fromChar(str[4]) orelse return error.Invalid).piece;
         }
 
         return move;
@@ -43,11 +43,48 @@ pub const Move = struct {
     }
 };
 
-pub fn get(board: *ChessBoard, pos: Position) *?PieceWithSide {
+const CastleSide = enum {
+    king,
+    queen,
+};
+
+const king_start_position: std.EnumArray(Side, Position) = .init(.{
+    .white = .fromString("e1".*),
+    .black = .fromString("e8".*),
+});
+
+const castle_squares: std.EnumArray(Side, std.EnumArray(CastleSide, struct { king_destination: Position, rook: Move })) = .init(.{
+    .white = .init(
+        .{
+            .king = .{
+                .king_destination = .fromString("g1".*),
+                .rook = .{ .from = .fromString("h1".*), .to = .fromString("f1".*) },
+            },
+            .queen = .{
+                .king_destination = .fromString("c1".*),
+                .rook = .{ .from = .fromString("a1".*), .to = .fromString("d1".*) },
+            },
+        },
+    ),
+    .black = .init(
+        .{
+            .king = .{
+                .king_destination = .fromString("g8".*),
+                .rook = .{ .from = .fromString("h8".*), .to = .fromString("f8".*) },
+            },
+            .queen = .{
+                .king_destination = .fromString("c8".*),
+                .rook = .{ .from = .fromString("a8".*), .to = .fromString("d8".*) },
+            },
+        },
+    ),
+});
+
+pub fn get(board: *GameState, pos: Position) *?Piece {
     return &board.cells[7 - pos.row][pos.file];
 }
 
-pub fn fromFen(fen_string: []const u8) error{InvalidFen}!ChessBoard {
+pub fn fromFen(fen_string: []const u8) error{InvalidFen}!GameState {
     var tokens = std.mem.tokenizeScalar(u8, fen_string, ' ');
     const board_str = tokens.next() orelse return error.InvalidFen;
     const turn = tokens.next() orelse return error.InvalidFen;
@@ -62,7 +99,7 @@ pub fn fromFen(fen_string: []const u8) error{InvalidFen}!ChessBoard {
         std.log.err("Contains invalid character: {c}", .{board_str[pos]});
         return error.InvalidFen;
     }
-    var board: ChessBoard = undefined;
+    var board: GameState = undefined;
 
     {
         var rows_strings = std.mem.tokenizeScalar(u8, board_str, '/');
@@ -114,7 +151,7 @@ pub fn fromFen(fen_string: []const u8) error{InvalidFen}!ChessBoard {
 }
 
 test fromFen {
-    const chess_board: ChessBoard = try .fromFen(
+    const chess_board: GameState = try .fromFen(
         \\rnbqkbnr/p7/8/8/8/8/PPPPPPPP/RNBQKBNR b Kq h8 10 100
     );
     var buffer: [0x1000]u8 = undefined;
@@ -123,44 +160,7 @@ test fromFen {
     try std.testing.expectEqualSlices(u8, "rnbqkbnr/p7/8/8/8/8/PPPPPPPP/RNBQKBNR b Kq h8 10 100", bw.buffered());
 }
 
-const king_start_position: std.EnumArray(Side, Position) = .init(.{
-    .white = .fromString("e1".*),
-    .black = .fromString("e8".*),
-});
-
-const CastleSide = enum {
-    king,
-    queen,
-};
-
-const castle_squares: std.EnumArray(Side, std.EnumArray(CastleSide, struct { king_destination: Position, rook: Move })) = .init(.{
-    .white = .init(
-        .{
-            .king = .{
-                .king_destination = .fromString("g1".*),
-                .rook = .{ .from = .fromString("h1".*), .to = .fromString("f1".*) },
-            },
-            .queen = .{
-                .king_destination = .fromString("c1".*),
-                .rook = .{ .from = .fromString("a1".*), .to = .fromString("d1".*) },
-            },
-        },
-    ),
-    .black = .init(
-        .{
-            .king = .{
-                .king_destination = .fromString("g8".*),
-                .rook = .{ .from = .fromString("h8".*), .to = .fromString("f8".*) },
-            },
-            .queen = .{
-                .king_destination = .fromString("c8".*),
-                .rook = .{ .from = .fromString("a8".*), .to = .fromString("d8".*) },
-            },
-        },
-    ),
-});
-
-pub fn applyMove(board: *ChessBoard, move: Move) void {
+pub fn applyMove(board: *GameState, move: Move) void {
     if (std.meta.eql(move.from, move.to)) {
         std.log.err("{s} {s}", .{ move.from.serialize(), move.to.serialize() });
         std.debug.assert(!std.meta.eql(move.from, move.to));
@@ -221,11 +221,9 @@ pub fn applyMove(board: *ChessBoard, move: Move) void {
         to.*.?.piece = promotion;
     }
     from.* = null;
-
-    std.log.info("moved from {s} to {s}", .{ move.from.serialize(), move.to.serialize() });
 }
 
-pub const Side = enum {
+pub const Side = enum(u1) {
     white,
     black,
 
@@ -279,23 +277,23 @@ pub const Position = struct {
     }
 };
 
-pub const Piece = enum {
-    pawn,
-    bishop,
-    knight,
-    rook,
-    queen,
-    king,
-};
-
-pub const PieceWithSide = struct {
+pub const Piece = packed struct {
     side: Side,
-    piece: Piece,
+    piece: Type,
 
-    pub fn fromChar(char: u8) ?PieceWithSide {
+    pub const Type = enum(u3) {
+        pawn,
+        bishop,
+        knight,
+        rook,
+        queen,
+        king,
+    };
+
+    pub fn fromChar(char: u8) ?Piece {
         const side: Side = if (std.ascii.isUpper(char)) .white else .black;
         const lower = std.ascii.toLower(char);
-        const piece: Piece = switch (lower) {
+        const piece: Piece.Type = switch (lower) {
             'p' => .pawn,
             'r' => .rook,
             'n' => .knight,
@@ -311,7 +309,7 @@ pub const PieceWithSide = struct {
         };
     }
 
-    pub fn toChar(piece_with_side: PieceWithSide) u8 {
+    pub fn toChar(piece_with_side: Piece) u8 {
         var piece: u8 = switch (piece_with_side.piece) {
             .pawn => 'p',
             .rook => 'r',
@@ -327,7 +325,7 @@ pub const PieceWithSide = struct {
     }
 };
 
-fn isRookMovePossible(board: *ChessBoard, from: Position, to: Position, dv: u3, dh: u3) bool {
+fn isRookMovePossible(board: *GameState, from: Position, to: Position, dv: u3, dh: u3) bool {
     if (dv != 0 and dh != 0) return false;
 
     var x = from.file;
@@ -352,7 +350,7 @@ fn isRookMovePossible(board: *ChessBoard, from: Position, to: Position, dv: u3, 
     }
 }
 
-fn findAny(board: *ChessBoard, piece: PieceWithSide) ?Position {
+fn findAny(board: *GameState, piece: Piece) ?Position {
     for (0..8) |y| {
         for (0..8) |x| {
             const pos: Position = .{
@@ -369,7 +367,7 @@ fn findAny(board: *ChessBoard, piece: PieceWithSide) ?Position {
     return null;
 }
 
-fn kingInCheck(board: *ChessBoard, side: Side) bool {
+fn kingInCheck(board: *GameState, side: Side) bool {
     const king_pos = board.findAny(.{ .piece = .king, .side = side }).?;
 
     for (0..8) |y| {
@@ -389,7 +387,7 @@ const pawns_start_row: std.EnumArray(Side, u3) = .init(.{
     .black = 6,
 });
 
-pub fn isMovePossible(board: *ChessBoard, from: Position, to: Position) bool {
+pub fn isMovePossible(board: *GameState, from: Position, to: Position) bool {
     if (!board.isMovePossibleWithNoCheck(from, to)) return false;
 
     var board_copy = board.*;
@@ -397,7 +395,7 @@ pub fn isMovePossible(board: *ChessBoard, from: Position, to: Position) bool {
     return !board_copy.kingInCheck(board.turn);
 }
 
-fn isMovePossibleWithNoCheck(board: *ChessBoard, from: Position, to: Position) bool {
+fn isMovePossibleWithNoCheck(board: *GameState, from: Position, to: Position) bool {
     const piece = board.get(from).* orelse return false;
 
     if (board.get(to).*) |targeted_piece| {
@@ -465,7 +463,7 @@ fn isMovePossibleWithNoCheck(board: *ChessBoard, from: Position, to: Position) b
     }
 }
 
-pub fn writeFen(self: *const ChessBoard, writer: *std.Io.Writer) !void {
+pub fn writeFen(self: *const GameState, writer: *std.Io.Writer) !void {
     // write board positions
     for (self.cells, 0..) |row, index| {
         var running_empties: u4 = 0;
@@ -528,7 +526,7 @@ pub fn writeFen(self: *const ChessBoard, writer: *std.Io.Writer) !void {
     try writer.print(" {d} {d}", .{ self.halfmove_clock, self.moves });
 }
 
-pub const init = ChessBoard{
+pub const init = GameState{
     .cells = .{
         .{ .fromChar('r'), .fromChar('n'), .fromChar('b'), .fromChar('q'), .fromChar('k'), .fromChar('b'), .fromChar('n'), .fromChar('r') },
         .{ .fromChar('p'), .fromChar('p'), .fromChar('p'), .fromChar('p'), .fromChar('p'), .fromChar('p'), .fromChar('p'), .fromChar('p') },
@@ -552,6 +550,6 @@ pub const init = ChessBoard{
 test {
     var buffer: [0x1000]u8 = undefined;
     var bw: std.Io.Writer = .fixed(&buffer);
-    try ChessBoard.init.writeFen(&bw);
+    try GameState.init.writeFen(&bw);
     try std.testing.expectEqualSlices(u8, "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 0", bw.buffered());
 }

@@ -1,8 +1,8 @@
 const std = @import("std");
-const ChessBoard = @import("ChessBoard.zig");
+const GameState = @import("GameState.zig");
 const Uci = @This();
 const uci2 = @import("uci2.zig");
-const Move = ChessBoard.Move;
+const Move = GameState.Move;
 const Io = std.Io;
 
 io: Io,
@@ -82,7 +82,7 @@ pub fn getMove(self: *@This()) !Move {
     }
 }
 
-pub fn setPosition(self: *@This(), board: ChessBoard) !void {
+pub fn setPosition(self: *@This(), board: GameState) !void {
     {
         var buffer: [0x100]u8 = undefined;
         var fixed: std.Io.Writer = .fixed(&buffer);
@@ -102,8 +102,6 @@ pub fn quit(self: *@This()) !void {
     std.log.info("quit engine", .{});
 }
 
-const GoConfig = uci2.GoConfig;
-
 pub fn go(self: *@This(), config: uci2.GoConfig) !void {
     try uci2.go(&self.writer.interface, config);
     try self.writer.interface.flush();
@@ -120,7 +118,7 @@ test {
     var uci = try connect(arena_state.allocator(), std.testing.io, &buffer, args.engine_path);
     defer uci.quit() catch {};
 
-    var board: ChessBoard = .init;
+    var board: GameState = .init;
     while (true) {
         try uci.setPosition(board);
         try uci.go(.{ .depth = 3 });

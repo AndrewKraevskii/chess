@@ -1,8 +1,8 @@
 const std = @import("std");
 const Reader = std.Io.Reader;
 const Writer = std.Io.Writer;
-const ChessBoard = @import("ChessBoard.zig");
-const Move = ChessBoard.Move;
+const GameState = @import("GameState.zig");
+const Move = GameState.Move;
 const log = std.log.scoped(.uci2);
 
 reader: *Reader,
@@ -15,7 +15,7 @@ pub fn init(stdin: *Reader, stdout: *Writer) void {
     };
 }
 
-pub fn setPosition(w: *Writer, c: ChessBoard) !void {
+pub fn setPosition(w: *Writer, c: GameState) !void {
     try w.writeAll("position fen ");
     try c.writeFen(w);
     try w.writeAll("\n");
@@ -202,5 +202,3 @@ test readerSkipNone {
     try std.testing.expectEqualSlices(u8, "\n", reader.buffered());
     try std.testing.expectError(error.EndOfStream, readerSkipNone(&reader, &std.ascii.whitespace));
 }
-
-const Uci = @This();
