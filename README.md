@@ -8,7 +8,7 @@
 - checks for correctness of moves.
 
 ## Building
-install `zig` verison 2024.10.0-mach (0.14.0-dev.1911+3bf89f55c)
+install `zig` verison (0.16.0-dev.2261+d6b3dd25a@fork)
 
 build using:
 ```sh
