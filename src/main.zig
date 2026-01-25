@@ -526,4 +526,5 @@ pub fn main(init: std.process.Init) !void {
 test {
     _ = @import("Uci.zig");
     _ = @import("uci2.zig");
+    _ = @import("GameState2.zig");
 }
