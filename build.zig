@@ -53,7 +53,10 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 
+    const test_filters = b.option([]const []const u8, "test-filter", "Skip tests that do not match any filter") orelse &[0][]const u8{};
+
     const exe_unit_tests = b.addTest(.{
+        .filters = test_filters,
         .root_module = module,
     });
 
