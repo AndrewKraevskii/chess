@@ -141,3 +141,16 @@ test parse {
     try chess_board.writeFen(&bw);
     try std.testing.expectEqualSlices(u8, "rnbqkbnr/p7/8/8/8/8/PPPPPPPP/RNBQKBNR b Kq h8 10 100", bw.buffered());
 }
+
+test "parse fuzz" {
+    // fuzzing is broken on zig master https://codeberg.org/ziglang/zig/issues/30797
+    if (true) return error.SkipZigTest;
+
+    try std.testing.fuzz({}, struct {
+        fn foo(_: void, query: []const u8) anyerror!void {
+            _ = parse(query) catch |e| switch (e) {
+                error.InvalidFen => {},
+            };
+        }
+    }.foo, .{});
+}
