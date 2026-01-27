@@ -1,7 +1,7 @@
 const std = @import("std");
 const Reader = std.Io.Reader;
 const Writer = std.Io.Writer;
-const GameState = @import("GameState.zig");
+const GameState = @import("GameState2.zig");
 const Move = GameState.Move;
 const log = std.log.scoped(.uci2);
 

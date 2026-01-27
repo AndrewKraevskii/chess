@@ -1,5 +1,7 @@
 const std = @import("std");
 
+pub const parse = @import("fen.zig").parse;
+
 const GameState = @This();
 // fields here are orderd same as in FEN string.
 
@@ -63,7 +65,7 @@ pub const empty: GameState = .{
     .en_passant = null,
 };
 
-const Move = struct {
+pub const Move = struct {
     from: Position,
     to: Position,
 
@@ -781,7 +783,7 @@ test "King in corner has 3 moves" {
     try std.testing.expectEqual(3, game.movesRaw(&buffer).len);
 }
 
-fn containsMove(moves: []const Move, move: Move) bool {
+pub fn containsMove(moves: []const Move, move: Move) bool {
     for (moves) |move_in_list| {
         if (std.meta.eql(move_in_list, move))
             return true;
@@ -944,70 +946,4 @@ test "Pawn promotion" {
         const expected = try GameState.parse("7" ++ piece_str ++ "/8/8/8/8/8/8/8 b - - 0 1");
         try std.testing.expectEqual(expected, promoted);
     }
-}
-
-pub fn parse(fen_string: []const u8) error{InvalidFen}!GameState {
-    var tokens = std.mem.tokenizeScalar(u8, fen_string, ' ');
-    const board_str = tokens.next() orelse return error.InvalidFen;
-    const turn = tokens.next() orelse return error.InvalidFen;
-    const castle = tokens.next() orelse return error.InvalidFen;
-    const en_passant = tokens.next() orelse return error.InvalidFen;
-    const half_turn = tokens.next() orelse return error.InvalidFen;
-    const full_turn = tokens.next() orelse return error.InvalidFen;
-    if (tokens.next() != null) return error.InvalidFen;
-
-    // fen string can't contain 0s in board part. So it is explicity excluded.
-    if (std.mem.findNone(u8, board_str, "rnbqkbnrRNBQKBNRpP12345678/")) |pos| {
-        std.log.err("Contains invalid character: {c}", .{board_str[pos]});
-        return error.InvalidFen;
-    }
-    var board: GameState = undefined;
-
-    {
-        var rows_strings = std.mem.tokenizeScalar(u8, board_str, '/');
-        for (&board.cells) |*row| {
-            const row_string = rows_strings.next() orelse return error.InvalidFen;
-            @memset(row, null);
-            var row_pos: u4 = 0;
-            for (row_string) |char| {
-                if ('1' <= char and char <= '8') {
-                    row_pos = std.math.add(u4, row_pos, @intCast(char - '1' + 1)) catch return error.InvalidFen;
-                    continue;
-                }
-                if (row_pos >= row.len) return error.InvalidFen;
-                row[row_pos] = .fromChar(char);
-                row_pos += 1;
-            }
-            if (row_pos != 8) return error.InvalidFen;
-        }
-        if (rows_strings.next() != null) return error.InvalidFen;
-    }
-
-    std.debug.assert(turn.len > 0); // tokenize always returns non empty strings.
-
-    if (turn.len != 1) return error.InvalidFen;
-    board.turn = GameState.Side.fromChar(turn[0]) orelse return error.InvalidFen;
-    board.can_castle = .init(.{
-        .white = .init(.{
-            .queen = std.mem.findScalar(u8, castle, 'Q') != null,
-            .king = std.mem.findScalar(u8, castle, 'K') != null,
-        }),
-        .black = .init(.{
-            .queen = std.mem.findScalar(u8, castle, 'q') != null,
-            .king = std.mem.findScalar(u8, castle, 'k') != null,
-        }),
-    });
-
-    if (std.mem.eql(u8, en_passant, "-")) {
-        board.en_passant = null;
-    } else if (en_passant.len == 2) {
-        board.en_passant = GameState.Position.fromStringFalible(en_passant[0..2].*) catch return error.InvalidFen;
-    } else {
-        return error.InvalidFen;
-    }
-
-    board.half_moves = std.fmt.parseInt(u32, half_turn, 10) catch return error.InvalidFen;
-    board.full_moves = std.fmt.parseInt(u32, full_turn, 10) catch return error.InvalidFen;
-
-    return board;
 }

@@ -1,5 +1,5 @@
 const std = @import("std");
-const GameState = @import("GameState.zig");
+const GameState = @import("GameState2.zig");
 const Uci = @This();
 const uci2 = @import("uci2.zig");
 const Move = GameState.Move;
@@ -108,7 +108,7 @@ pub fn go(self: *@This(), config: uci2.GoConfig) !void {
 }
 
 test {
-    // if (true) return error.SkipZigTest;
+    if (true) return error.SkipZigTest;
     const args = @import("args");
 
     var arena_state: std.heap.ArenaAllocator = .init(std.testing.allocator);

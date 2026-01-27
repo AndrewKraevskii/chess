@@ -1,4 +1,4 @@
-const GameState = @import("GameState.zig");
+const GameState = @import("GameState2.zig");
 const std = @import("std");
 const Writer = std.Io.Writer;
 const assert = std.debug.assert;
@@ -34,18 +34,18 @@ pub fn serialize(self: *const GameState, writer: *Writer) !void {
     // write castle
     castle: inline for ([_]GameState.Side{ .white, .black }) |side| {
         inline for ([_]GameState.CastleSide{ .king, .queen }) |castle_side| {
-            if (self.can_castle.get(side).get(castle_side)) {
+            if (self.can_castle.get(side).contains(castle_side)) {
                 try writer.writeAll(" ");
-                if (self.can_castle.get(.white).get(.king)) {
+                if (self.can_castle.get(.white).contains(.king)) {
                     try writer.writeAll("K");
                 }
-                if (self.can_castle.get(.white).get(.queen)) {
+                if (self.can_castle.get(.white).contains(.queen)) {
                     try writer.writeAll("Q");
                 }
-                if (self.can_castle.get(.black).get(.king)) {
+                if (self.can_castle.get(.black).contains(.king)) {
                     try writer.writeAll("k");
                 }
-                if (self.can_castle.get(.black).get(.queen)) {
+                if (self.can_castle.get(.black).contains(.queen)) {
                     try writer.writeAll("q");
                 }
                 break :castle;
@@ -63,7 +63,7 @@ pub fn serialize(self: *const GameState, writer: *Writer) !void {
     }
 
     // number of moves
-    try writer.print(" {d} {d}", .{ self.halfmove_clock, self.moves });
+    try writer.print(" {d} {d}", .{ self.half_moves, self.full_moves });
 }
 
 pub fn parse(fen_string: []const u8) error{InvalidFen}!GameState {
@@ -91,14 +91,14 @@ pub fn parse(fen_string: []const u8) error{InvalidFen}!GameState {
             var row_pos: u4 = 0;
             for (row_string) |char| {
                 if ('1' <= char and char <= '8') {
-                    row_pos += @intCast(char - '1');
-                    row_pos += 1;
+                    row_pos = std.math.add(u4, row_pos, @intCast(char - '1' + 1)) catch return error.InvalidFen;
                     continue;
                 }
                 if (row_pos >= row.len) return error.InvalidFen;
                 row[row_pos] = .fromChar(char);
                 row_pos += 1;
             }
+            if (row_pos != 8) return error.InvalidFen;
         }
         if (rows_strings.next() != null) return error.InvalidFen;
     }
@@ -126,8 +126,8 @@ pub fn parse(fen_string: []const u8) error{InvalidFen}!GameState {
         return error.InvalidFen;
     }
 
-    board.halfmove_clock = std.fmt.parseInt(u32, half_turn, 10) catch return error.InvalidFen;
-    board.moves = std.fmt.parseInt(u32, full_turn, 10) catch return error.InvalidFen;
+    board.half_moves = std.fmt.parseInt(u32, half_turn, 10) catch return error.InvalidFen;
+    board.full_moves = std.fmt.parseInt(u32, full_turn, 10) catch return error.InvalidFen;
 
     return board;
 }

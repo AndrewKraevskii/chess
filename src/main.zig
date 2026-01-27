@@ -1,7 +1,7 @@
 const std = @import("std");
 const rl = @import("raylib");
 const gui = @import("raygui");
-const GameState = @import("GameState.zig");
+const GameState = @import("GameState2.zig");
 const rlx = @import("raylibx.zig");
 const Uci = @import("Uci.zig");
 const Io = std.Io;
@@ -32,10 +32,10 @@ fn rectFromPositionAndSize(pos: rl.Vector2, size: rl.Vector2) rl.Rectangle {
     };
 }
 
-fn drawPiece(@"type": GameState.Piece, dest: rl.Rectangle, style: GameStateDisplayStyle) void {
+fn drawPiece(piece: GameState.Piece, dest: rl.Rectangle, style: GameStateDisplayStyle) void {
     style.atlas.drawPro(
         .{
-            .x = pieceIndexInAtlas(@"type".piece) * 16,
+            .x = pieceIndexInAtlas(piece.type) * 16,
             .y = 0,
             .width = 16,
             .height = 16,
@@ -43,7 +43,7 @@ fn drawPiece(@"type": GameState.Piece, dest: rl.Rectangle, style: GameStateDispl
         dest,
         .init(0, 0),
         0,
-        if (@"type".side == .white) .white else .yellow,
+        if (piece.side == .white) .white else .yellow,
     );
 }
 
@@ -220,11 +220,19 @@ pub fn doChess(uci: *Uci, random: std.Random, io: Io, gpa: std.mem.Allocator, st
     };
 
     while (!rl.windowShouldClose()) {
-        if (board.result()) |res| return switch (res) {
-            .draw => .draw,
-            .white_won => .white_won,
-            .black_won => .black_won,
-        };
+        var moves_buffer: [GameState.max_moves_from_position]GameState.Move = undefined;
+        const moves = board.validMoves(&moves_buffer);
+
+        switch (board.result()) {
+            .playing => {},
+            .checkmate => return switch (board.turn.next()) {
+                .black => .black_won,
+                .white => .white_won,
+            },
+            .stalemate => return .draw,
+            .fifty_move_rule => return .draw,
+            .three_fold_repetition => return .draw,
+        }
 
         if (rl.isKeyPressed(.space)) {
             paused = !paused;
@@ -233,7 +241,7 @@ pub fn doChess(uci: *Uci, random: std.Random, io: Io, gpa: std.mem.Allocator, st
         if (!paused) {
             if (animation) |*anim| { // update
                 if (anim.progress >= 1) {
-                    board.applyMove(anim.move);
+                    board = board.applyMove(.{ .from = anim.move.from, .to = anim.move.to, .promotion = null });
                     switch (play_mode) {
                         .pve => whose_turn.switchTurn(),
                         .pvp => {},
@@ -300,7 +308,7 @@ pub fn doChess(uci: *Uci, random: std.Random, io: Io, gpa: std.mem.Allocator, st
                                         break :player;
                                     }
                                 }
-                                if (board.isMovePossible(selected, p.hovered_square.?)) {
+                                if (GameState.containsMove(moves, .{ .from = selected, .to = p.hovered_square.? })) {
                                     animation = .{
                                         .piece = board.get(selected).*.?,
                                         .move = .{ .from = selected, .to = p.hovered_square.? },
@@ -353,7 +361,7 @@ pub fn doChess(uci: *Uci, random: std.Random, io: Io, gpa: std.mem.Allocator, st
                     if (whose_turn.player.selected_square) |selected_square| {
                         for (0..8) |y| {
                             for (0..8) |x| {
-                                if (board.isMovePossible(selected_square, .{ .file = @intCast(x), .row = @intCast(7 - y) })) {
+                                if (GameState.containsMove(moves, .{ .from = selected_square, .to = .{ .file = @intCast(x), .row = @intCast(7 - y) } })) {
                                     const posf: rl.Vector2 = .init(@floatFromInt(x), @floatFromInt(y));
                                     rl.drawCircleV(
                                         posf.scale(side_length / 8).addValue((style.padding - side_length) / 2 + cell_size / 2).add(center),
@@ -517,7 +525,7 @@ pub fn main(init: std.process.Init) !void {
                 .black_won => .black,
             };
             const icon_side = font_size;
-            drawPiece(.{ .side = side, .piece = .king }, .{ .x = text_pos.x - icon_side, .y = text_pos.y, .width = icon_side, .height = icon_side }, style);
+            drawPiece(.{ .side = side, .type = .king }, .{ .x = text_pos.x - icon_side, .y = text_pos.y, .width = icon_side, .height = icon_side }, style);
         }
         try io.sleep(.fromSeconds(1), .awake);
     }
