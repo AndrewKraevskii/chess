@@ -597,6 +597,58 @@ pub fn validMoves(state: *const GameState, buffer: *[GameState.max_moves_from_po
     return raw_moves.items;
 }
 
+const Result = enum {
+    playing,
+    /// No moves on player's turn and king is in check.
+    checkmate,
+    /// No moves on player's turn but king is not in check.
+    stalemate,
+    /// 50 full moves without any captures or pawn movments.
+    fifty_move_rule,
+    /// Same state releated 3 times.
+    /// TODO: actually implement.
+    three_fold_repetition,
+};
+
+pub fn result(state: *const GameState) Result {
+    if (state.half_moves >= 100) {
+        return .fifty_move_rule;
+    }
+    var buffer: [max_moves_from_position]Move = undefined;
+    if (state.validMoves(&buffer).len > 0) {
+        return .playing;
+    }
+    var copy = state.*;
+    copy.turn = copy.turn.next();
+
+    for (copy.movesRaw(&buffer)) |move| {
+        if (copy.getConst(move.to)) |target| {
+            if (target.type == .king) {
+                return .checkmate;
+            }
+        }
+    }
+
+    return .stalemate;
+}
+
+test "Checkmate detection correctness" {
+    var game = try GameState.parse("7k/6Q1/5K2/8/8/8/8/8 b - - 0 1");
+
+    const res = game.result();
+    try std.testing.expectEqual(res, .checkmate);
+
+    game = try GameState.parse("8/8/8/8/8/6rk/8/7K w - - 0 1");
+
+    const res2 = game.result();
+    try std.testing.expectEqual(res2, .stalemate);
+
+    game = try GameState.parse("8/8/8/8/8/6kr/8/7K w - - 0 1");
+
+    const res3 = game.result();
+    try std.testing.expectEqual(res3, .playing);
+}
+
 test "Moves that leave king in check are invalid" {
     var buffer: [GameState.max_moves_from_position]Move = undefined;
 
