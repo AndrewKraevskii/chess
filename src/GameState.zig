@@ -505,7 +505,7 @@ pub fn applyMove(state: *const GameState, move: MovePromotion) GameState {
 
     const new_en_passant: ?Position = en: {
         if (from.type == .pawn) {
-            if (pawns_start_row.get(turn) == move.from.row) {
+            if (pawns_start_row.get(turn) == move.from.row and pawns_start_row.get(turn) == move.to.backward(2, turn).row) {
                 break :en move.from.forward(1, turn);
             }
         }
