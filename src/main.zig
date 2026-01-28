@@ -5,6 +5,14 @@ const GameState = @import("GameState2.zig");
 const rlx = @import("raylibx.zig");
 const Uci = @import("Uci.zig");
 const Io = std.Io;
+const log = std.log.scoped(.main);
+
+pub const std_options: std.Options = .{
+    .log_scope_levels = &.{.{
+        .scope = .uci2,
+        .level = .err,
+    }},
+};
 
 const PlayMode = enum {
     eve,
@@ -456,12 +464,13 @@ pub fn main(init: std.process.Init) !void {
         if (std.meta.stringToEnum(PlayMode, mode_text)) |mode| {
             break :blk mode;
         }
-        std.log.err("Expected one of eve,pvp,pve", .{});
+        log.err("Expected one of eve,pvp,pve", .{});
         return;
     } else null;
 
-    std.log.debug("{s}", .{engine_path});
     const fen_string = args.next();
+
+    log.debug("{s}", .{engine_path});
     rl.setConfigFlags(.{
         .window_resizable = true,
     });
@@ -491,9 +500,9 @@ pub fn main(init: std.process.Init) !void {
     while (!rl.windowShouldClose()) {
         var uci = try Uci.connect(io, &uci_read_buffer, &uci_write_buffer, engine_path);
         defer {
-            std.log.info("Exiting game loop", .{});
+            log.info("Exiting game loop", .{});
             uci.quit() catch |e| {
-                std.log.err("can't deinit engine: {s}", .{@errorName(e)});
+                log.err("can't deinit engine: {s}", .{@errorName(e)});
             };
         }
 
@@ -509,7 +518,7 @@ pub fn main(init: std.process.Init) !void {
             error.WindowShouldClose => break,
             else => |other| return other,
         };
-        std.log.info("End of game {s}", .{@tagName(result)});
+        log.info("End of game {s}", .{@tagName(result)});
         const text = switch (result) {
             .draw => "draw",
             .white_won => "white won",

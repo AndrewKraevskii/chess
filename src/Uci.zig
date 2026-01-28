@@ -4,6 +4,7 @@ const Uci = @This();
 const uci2 = @import("uci2.zig");
 const Move = GameState.Move;
 const Io = std.Io;
+const log = std.log.scoped(.uci);
 
 io: Io,
 engine_process: std.process.Child,
@@ -58,7 +59,7 @@ pub fn getMoveAsync(self: *@This()) *MovePromise {
             promise.result = getMove(_self) catch |e| switch (e) {
                 error.EndOfGame => error.EndOfGame,
                 else => |other| {
-                    std.log.err("{s}", .{@errorName(other)});
+                    log.err("{s}", .{@errorName(other)});
                     return;
                 },
             };
@@ -70,15 +71,15 @@ pub fn getMoveAsync(self: *@This()) *MovePromise {
 }
 
 pub fn getMove(self: *@This()) !Move {
-    std.log.debug("getting move", .{});
+    log.debug("getting move", .{});
     while (true) {
         const command = try uci2.getCommand(&self.reader.interface) orelse return error.EndOfGame;
         if (command == .bestmove) {
-            std.log.info("from: {s} ", .{command.bestmove.move.from.serialize()});
-            std.log.info("to {s}\n", .{command.bestmove.move.to.serialize()});
+            log.info("from: {s} ", .{command.bestmove.move.from.serialize()});
+            log.info("to {s}\n", .{command.bestmove.move.to.serialize()});
             return command.bestmove.move;
         }
-        std.log.debug("recieved: {t}", .{command});
+        log.debug("recieved: {t}", .{command});
     }
 }
 
@@ -87,7 +88,7 @@ pub fn setPosition(self: *@This(), board: GameState) !void {
         var buffer: [0x100]u8 = undefined;
         var fixed: std.Io.Writer = .fixed(&buffer);
         try board.writeFen(&fixed);
-        std.log.debug("set position: {s}", .{fixed.buffered()});
+        log.debug("set position: {s}", .{fixed.buffered()});
     }
     try uci2.setPosition(&self.writer.interface, board);
     try self.writer.interface.flush();
@@ -99,7 +100,7 @@ pub fn quit(self: *@This()) !void {
     _ = try self.engine_process.wait(self.io);
 
     self.group.cancel(self.io);
-    std.log.info("quit engine", .{});
+    log.info("quit engine", .{});
 }
 
 pub fn go(self: *@This(), config: uci2.GoConfig) !void {

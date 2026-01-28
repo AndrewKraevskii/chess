@@ -3,6 +3,8 @@ const std = @import("std");
 const Writer = std.Io.Writer;
 const assert = std.debug.assert;
 
+const log = std.log.scoped(.fen);
+
 pub fn serialize(self: *const GameState, writer: *Writer) !void {
     // write board positions
     for (self.cells, 0..) |row, index| {
@@ -78,7 +80,7 @@ pub fn parse(fen_string: []const u8) error{InvalidFen}!GameState {
 
     // fen string can't contain 0s in board part. So it is explicity excluded.
     if (std.mem.findNone(u8, board_str, "rnbqkbnrRNBQKBNRpP12345678/")) |pos| {
-        std.log.err("Contains invalid character: {c}", .{board_str[pos]});
+        log.err("Contains invalid character: {c}", .{board_str[pos]});
         return error.InvalidFen;
     }
     var board: GameState = undefined;
