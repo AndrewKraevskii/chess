@@ -41,11 +41,17 @@ pub fn Promise(comptime T: type) type {
         done: std.atomic.Value(bool),
         result: T,
 
+        const init: @This() = .{ .done = .init(false), .result = undefined };
         pub fn get(self: @This()) ?T {
             if (self.done.load(.acquire)) {
                 return self.result;
             }
             return null;
+        }
+
+        pub fn put(self: *@This(), value: T) void {
+            self.result = value;
+            self.done.store(true, .release);
         }
     };
 }
@@ -53,20 +59,19 @@ pub fn Promise(comptime T: type) type {
 pub const MovePromise = Promise(error{EndOfGame}!Move);
 
 pub fn getMoveAsync(self: *@This()) *MovePromise {
-    self.promise = .{ .done = .init(false), .result = undefined };
+    self.promise = .init;
     self.group.concurrent(self.io, struct {
         fn move(
             _self: *Uci,
             promise: *MovePromise,
         ) void {
-            promise.result = getMove(_self) catch |e| switch (e) {
+            promise.put(getMove(_self) catch |e| switch (e) {
                 error.EndOfGame => error.EndOfGame,
                 else => |other| {
                     log.err("{s}", .{@errorName(other)});
                     return;
                 },
-            };
-            promise.done.store(true, .release);
+            });
         }
     }.move, .{ self, &self.promise.? }) catch @panic("ConcurrencyUnavailable");
 
