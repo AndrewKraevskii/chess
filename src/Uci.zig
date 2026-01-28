@@ -1,7 +1,7 @@
 const std = @import("std");
 const Io = std.Io;
 
-const GameState = @import("GameState2.zig");
+const GameState = @import("GameState.zig");
 const Move = GameState.Move;
 const uci2 = @import("uci2.zig");
 

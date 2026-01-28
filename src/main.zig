@@ -5,7 +5,7 @@ const gui = @import("raygui");
 const rl = @import("raylib");
 
 const fen = @import("fen.zig");
-const GameState = @import("GameState2.zig");
+const GameState = @import("GameState.zig");
 const rlx = @import("raylibx.zig");
 const Uci = @import("Uci.zig");
 
@@ -551,5 +551,5 @@ pub fn main(init: std.process.Init) !void {
 test {
     _ = @import("Uci.zig");
     _ = @import("uci2.zig");
-    _ = @import("GameState2.zig");
+    _ = @import("GameState.zig");
 }
