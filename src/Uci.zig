@@ -11,7 +11,6 @@ const log = std.log.scoped(.uci);
 
 io: Io,
 engine_process: std.process.Child,
-promise: ?MovePromise,
 group: Io.Group,
 reader: Io.File.Reader,
 writer: Io.File.Writer,
@@ -29,53 +28,31 @@ pub fn connect(io: Io, reader_buffer: []u8, writer_buffer: []u8, engine_path: []
     return .{
         .io = io,
         .engine_process = child,
-        .promise = null,
         .group = .init,
         .writer = writer,
         .reader = reader,
     };
 }
 
-pub fn Promise(comptime T: type) type {
-    return struct {
-        done: std.atomic.Value(bool),
-        result: T,
-
-        const init: @This() = .{ .done = .init(false), .result = undefined };
-        pub fn get(self: @This()) ?T {
-            if (self.done.load(.acquire)) {
-                return self.result;
-            }
-            return null;
-        }
-
-        pub fn put(self: *@This(), value: T) void {
-            self.result = value;
-            self.done.store(true, .release);
-        }
-    };
-}
-
-pub const MovePromise = Promise(error{EndOfGame}!Move);
-
-pub fn getMoveAsync(self: *@This()) *MovePromise {
-    self.promise = .init;
+pub fn getMoveAsync(self: *@This(), io: Io, queue: *Io.Queue(Move)) void {
     self.group.concurrent(self.io, struct {
         fn move(
             _self: *Uci,
-            promise: *MovePromise,
+            _io: Io,
+            promise: *Io.Queue(Move),
         ) void {
-            promise.put(getMove(_self) catch |e| switch (e) {
-                error.EndOfGame => error.EndOfGame,
+            promise.putOne(_io, getMove(_self) catch |e| switch (e) {
+                error.EndOfGame => {
+                    promise.close(_io);
+                    return;
+                },
                 else => |other| {
                     log.err("{s}", .{@errorName(other)});
                     return;
                 },
-            });
+            }) catch @panic("TODO: handle");
         }
-    }.move, .{ self, &self.promise.? }) catch @panic("ConcurrencyUnavailable");
-
-    return &self.promise.?;
+    }.move, .{ self, io, queue }) catch @panic("ConcurrencyUnavailable");
 }
 
 pub fn getMove(self: *@This()) !Move {

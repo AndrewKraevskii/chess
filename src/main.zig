@@ -199,7 +199,6 @@ pub fn History(comptime Item: type) type {
 var animation_speed: f32 = 10;
 
 pub fn doChess(uci: *Uci, random: std.Random, starting_pos: ?[]const u8, io: Io, gpa: std.mem.Allocator, style: GameStateDisplayStyle, play_mode: PlayMode) !enum { white_won, black_won, draw } {
-    _ = io; // autofix
     var history: History(GameState) = try .init(gpa, 0x200);
     defer history.deinit(gpa);
 
@@ -207,7 +206,8 @@ pub fn doChess(uci: *Uci, random: std.Random, starting_pos: ?[]const u8, io: Io,
 
     var board: GameState = starting_board;
 
-    var engine_async_move: ?*Uci.MovePromise = null;
+    var engine_async_move: Io.Queue(GameState.MovePromotion) = .init(&.{});
+    var asked_engine = false;
 
     var animation: ?Animation = null;
     var paused: bool = false;
@@ -267,26 +267,23 @@ pub fn doChess(uci: *Uci, random: std.Random, starting_pos: ?[]const u8, io: Io,
                     anim.progress += rl.getFrameTime() * animation_speed;
                 }
             } else switch (whose_turn) {
-                .engine => if (engine_async_move) |state| {
-                    if (state.get()) |result| {
-                        if (result) |m| {
+                .engine => if (asked_engine) {
+                    var result: [1]GameState.MovePromotion = undefined;
+                    if (engine_async_move.get(io, &result, 0)) |n| {
+                        if (n == 1) {
                             animation = .{
-                                .piece = board.get(m.from).*.?,
-                                .move = m,
+                                .piece = board.get(result[0].from).*.?,
+                                .move = result[0],
                                 .progress = 0,
                             };
-                            engine_async_move = null;
-                        } else |_| {
-                            return switch (board.turn.next()) {
-                                .white => .white_won,
-                                .black => .black_won,
-                            };
+                            asked_engine = false;
                         }
-                    }
+                    } else |e| return e;
                 } else {
                     try uci.setPosition(board);
                     try uci.go(.{ .depth = @max(1, random.int(u3)) });
-                    engine_async_move = uci.getMoveAsync();
+                    uci.getMoveAsync(io, &engine_async_move);
+                    asked_engine = true;
                 },
                 .player => |*p| player: {
                     if (rl.isKeyPressed(.u)) undo: {
