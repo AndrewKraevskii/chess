@@ -2,7 +2,7 @@ const std = @import("std");
 const Io = std.Io;
 
 const GameState = @import("GameState.zig");
-const Move = GameState.Move;
+const Move = GameState.MovePromotion;
 const uci2 = @import("uci2.zig");
 
 const Uci = @This();

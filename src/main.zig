@@ -125,7 +125,7 @@ fn drawGameState(board: GameState, dest: rl.Rectangle, selection: Selection, sty
 
 const Animation = struct {
     piece: GameState.Piece,
-    move: GameState.Move,
+    move: GameState.MovePromotion,
     // range [0;1]
     progress: f32,
 
@@ -255,7 +255,7 @@ pub fn doChess(uci: *Uci, random: std.Random, starting_pos: ?[]const u8, io: Io,
         if (!paused) {
             if (animation) |*anim| { // update
                 if (anim.progress >= 1) {
-                    board = board.applyMove(.{ .from = anim.move.from, .to = anim.move.to, .promotion = null });
+                    board = board.applyMove(anim.move);
                     switch (play_mode) {
                         .pve => whose_turn.switchTurn(),
                         .pvp => {},

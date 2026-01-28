@@ -3,7 +3,7 @@ const Reader = std.Io.Reader;
 const Writer = std.Io.Writer;
 
 const GameState = @import("GameState.zig");
-const Move = GameState.Move;
+const Move = GameState.MovePromotion;
 
 const log = std.log.scoped(.uci2);
 
@@ -109,6 +109,8 @@ pub fn getCommand(reader: *Reader) error{ ReadFailed, StreamTooLong }!?Command {
         // we skipped all whitespace so its impossible to get nothing
         const token_str = tokens.next() orelse unreachable;
 
+        log.debug("token: {s}", .{token_str});
+
         const token = std.meta.stringToEnum(std.meta.Tag(Command), token_str) orelse {
             log.info("got unknown token: {s}", .{token_str});
             continue;
@@ -122,6 +124,7 @@ pub fn getCommand(reader: *Reader) error{ ReadFailed, StreamTooLong }!?Command {
                 } };
             },
             .bestmove => {
+                std.log.info("best move token", .{});
                 const move = tokens.next() orelse continue;
 
                 if (std.mem.eql(u8, move, "(none)")) {
