@@ -576,11 +576,47 @@ pub fn applyMove(state: *const GameState, move: MovePromotion) GameState {
 }
 
 pub fn validMoves(state: *const GameState, buffer: *[GameState.max_moves_from_position]Move) []Move {
+    const castling_blocked: std.EnumSet(CastleSide) = blk: {
+        var copy = state.*;
+        copy.turn = copy.turn.next();
+
+        var castling_blocked: std.EnumSet(CastleSide) = .initEmpty();
+        for (copy.movesRaw(buffer)) |move| {
+            if (state.getConst(move.to)) |target| {
+                if (target.type == .king) {
+                    std.debug.assert(target.side == state.turn);
+                    break :blk .initFull();
+                }
+            }
+            for (std.enums.values(CastleSide)) |side| {
+                var iter: Move.Iterator = .init(.{ .from = king_start_position.get(state.turn), .to = castle_squares.get(state.turn).get(side).king_destination });
+                while (iter.next()) |king_slide_positions| {
+                    if (std.meta.eql(king_slide_positions, move.to)) {
+                        castling_blocked.insert(side);
+                        break;
+                    }
+                }
+            }
+        }
+        break :blk castling_blocked;
+    };
     var raw_moves: std.ArrayList(Move) = .fromOwnedSlice(state.movesRaw(buffer));
     var index: usize = 0;
     moves: while (index < raw_moves.items.len) {
         const move = raw_moves.items[index];
-        // We don't really care which figure we promote to since it has no affect on if king would be targeted.
+
+        {
+            var iter_blocked = castling_blocked.iterator();
+            while (iter_blocked.next()) |blocked| {
+                if (state.getConst(move.from).?.type == .king and
+                    std.meta.eql(move.to, castle_squares.get(state.turn).get(blocked).king_destination) and
+                    std.meta.eql(move.from, king_start_position.get(state.turn)))
+                {
+                    _ = raw_moves.swapRemove(index);
+                    continue :moves;
+                }
+            }
+        } // We don't really care which figure we promote to since it has no affect on if king would be targeted.
         // So we choose knight because its cool like that.
         const promote_move: MovePromotion = .{
             .from = move.from,
@@ -722,6 +758,33 @@ test "Castling moves king and rook correctly" {
     // Old positions should be empty
     try std.testing.expect(after_castle.getConst(.fromString("a1".*)) == null);
     try std.testing.expect(after_castle.getConst(.fromString("e1".*)) == null);
+}
+
+test "Castling is not allowed while in check" {
+    // if (true) return error.SkipZigTest;
+    // Starting position with both rooks and king
+    {
+        const game = try GameState.parse("4r3/8/8/8/8/8/8/4K2R w K - 0 1");
+
+        // Apply kingside castling (white e1 → g1)
+        var buffer: [GameState.max_moves_from_position]Move = undefined;
+        try std.testing.expect(!containsMove(game.validMoves(&buffer), try Move.parse("e1g1")));
+    }
+
+    {
+        const game = try GameState.parse("5r2/8/8/8/8/8/8/4K2R w K - 0 1");
+
+        // Apply kingside castling (white e1 → g1)
+        var buffer: [GameState.max_moves_from_position]Move = undefined;
+        try std.testing.expect(!containsMove(game.validMoves(&buffer), try Move.parse("e1g1")));
+    }
+    {
+        const game = try GameState.parse("6r1/8/8/8/8/8/8/4K2R w K - 0 1");
+
+        // Apply kingside castling (white e1 → g1)
+        var buffer: [GameState.max_moves_from_position]Move = undefined;
+        try std.testing.expect(!containsMove(game.validMoves(&buffer), try Move.parse("e1g1")));
+    }
 }
 
 test "Halfmove and fullmove counters update correctly" {
