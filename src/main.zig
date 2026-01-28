@@ -206,7 +206,8 @@ pub fn doChess(uci: *Uci, random: std.Random, starting_pos: ?[]const u8, io: Io,
 
     var board: GameState = starting_board;
 
-    var engine_async_move: Io.Queue(GameState.MovePromotion) = .init(&.{});
+    var buffer: [1]GameState.MovePromotion = undefined;
+    var engine_async_move: Io.Queue(GameState.MovePromotion) = .init(&buffer);
     var asked_engine = false;
 
     var animation: ?Animation = null;

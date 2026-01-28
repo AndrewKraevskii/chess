@@ -35,7 +35,7 @@ pub fn connect(io: Io, reader_buffer: []u8, writer_buffer: []u8, engine_path: []
 }
 
 pub fn getMoveAsync(self: *@This(), io: Io, queue: *Io.Queue(Move)) void {
-    self.group.concurrent(self.io, struct {
+    self.group.async(self.io, struct {
         fn move(
             _self: *Uci,
             _io: Io,
@@ -52,7 +52,7 @@ pub fn getMoveAsync(self: *@This(), io: Io, queue: *Io.Queue(Move)) void {
                 },
             }) catch @panic("TODO: handle");
         }
-    }.move, .{ self, io, queue }) catch @panic("ConcurrencyUnavailable");
+    }.move, .{ self, io, queue });
 }
 
 pub fn getMove(self: *@This()) !Move {

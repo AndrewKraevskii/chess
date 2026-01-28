@@ -6,10 +6,13 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     const use_llvm = b.option(bool, "use-llvm", "use llvm default true") orelse false;
+    const single_threaded = b.option(bool, "single-threaded", "") orelse false;
+
     const module = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
+        .single_threaded = single_threaded,
     });
     module.addAnonymousImport("chess_figures", .{
         .root_source_file = b.path("assets/chess_figures.png"),
