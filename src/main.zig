@@ -186,12 +186,14 @@ pub fn History(comptime Item: type) type {
 
 var animation_speed: f32 = 10;
 
-pub fn doChess(uci: *Uci, random: std.Random, io: Io, gpa: std.mem.Allocator, style: GameStateDisplayStyle, play_mode: PlayMode) !enum { white_won, black_won, draw } {
+pub fn doChess(uci: *Uci, random: std.Random, starting_pos: ?[]const u8, io: Io, gpa: std.mem.Allocator, style: GameStateDisplayStyle, play_mode: PlayMode) !enum { white_won, black_won, draw } {
     _ = io; // autofix
     var history: History(GameState) = try .init(gpa, 0x200);
     defer history.deinit(gpa);
 
-    var board: GameState = .init;
+    const starting_board: GameState = if (starting_pos) |f| try .parse(f) else .init;
+
+    var board: GameState = starting_board;
 
     var engine_async_move: ?*Uci.MovePromise = null;
 
@@ -459,6 +461,7 @@ pub fn main(init: std.process.Init) !void {
     } else null;
 
     std.log.debug("{s}", .{engine_path});
+    const fen_string = args.next();
     rl.setConfigFlags(.{
         .window_resizable = true,
     });
@@ -497,6 +500,7 @@ pub fn main(init: std.process.Init) !void {
         const result = doChess(
             &uci,
             random.random(),
+            fen_string,
             io,
             program_arena,
             style,
