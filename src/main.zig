@@ -8,6 +8,7 @@ const fen = @import("fen.zig");
 const GameState = @import("GameState.zig");
 const rlx = @import("raylibx.zig");
 const Uci = @import("Uci.zig");
+const History = @import("History.zig");
 
 const log = std.log.scoped(.main);
 
@@ -44,7 +45,7 @@ fn rectFromPositionAndSize(pos: rl.Vector2, size: rl.Vector2) rl.Rectangle {
     };
 }
 
-fn drawPiece(piece: GameState.Piece, dest: rl.Rectangle, style: GameStateDisplayStyle) void {
+fn drawPiece(piece: GameState.Piece, dest: rl.Rectangle, style: DisplayStyle) void {
     style.atlas.drawPro(
         .{
             .x = pieceIndexInAtlas(piece.type) * 16,
@@ -59,7 +60,7 @@ fn drawPiece(piece: GameState.Piece, dest: rl.Rectangle, style: GameStateDisplay
     );
 }
 
-const GameStateDisplayStyle = struct {
+const DisplayStyle = struct {
     font: rl.Font,
     padding: f32,
     atlas: rl.Texture,
@@ -80,7 +81,7 @@ const Selection = struct {
     };
 };
 
-fn drawGameState(board: GameState, dest: rl.Rectangle, selection: Selection, style: GameStateDisplayStyle) void {
+fn drawGameState(board: GameState, dest: rl.Rectangle, selection: Selection, style: DisplayStyle) void {
     const cell_size = dest.width / 8;
     var y: f32 = dest.y;
     var parity: u1 = 1;
@@ -148,58 +149,10 @@ const Animation = struct {
     }
 };
 
-pub fn History(comptime Item: type) type {
-    return struct {
-        events: std.ArrayList(Item),
-        undone: usize,
-
-        pub fn init(gpa: std.mem.Allocator, capacity: usize) !@This() {
-            return .{
-                .events = try .initCapacity(gpa, capacity),
-                .undone = 0,
-            };
-        }
-        pub fn deinit(h: *@This(), gpa: std.mem.Allocator) void {
-            h.events.deinit(gpa);
-        }
-
-        pub fn undo(history: *@This()) ?Item {
-            std.debug.assert(history.undone <= history.events.items.len);
-            if (history.undone == history.events.items.len) {
-                return null;
-            }
-            history.undone += 1;
-
-            return history.events.items[history.events.items.len - history.undone];
-        }
-
-        pub fn redo(history: *@This()) ?Item {
-            if (history.undone == 0) return null;
-            const event_to_redo = history.events.items[history.events.items.len - history.undone];
-            history.undone -= 1;
-            return event_to_redo;
-        }
-
-        pub fn addHistoryEntry(
-            history: *@This(),
-            entry: Item,
-        ) !void {
-            if (history.undone != 0) {
-                history.events.shrinkRetainingCapacity(history.events.items.len - history.undone);
-                history.undone = 0;
-            }
-
-            try history.events.appendBounded(
-                entry,
-            );
-        }
-    };
-}
-
 var animation_speed: f32 = 10;
 
-pub fn doChess(uci: *Uci, random: std.Random, starting_pos: ?[]const u8, io: Io, gpa: std.mem.Allocator, style: GameStateDisplayStyle, play_mode: PlayMode) !enum { white_won, black_won, draw } {
-    var history: History(GameState) = try .init(gpa, 0x200);
+pub fn doChess(uci: *Uci, random: std.Random, starting_pos: ?[]const u8, io: Io, gpa: std.mem.Allocator, style: DisplayStyle, play_mode: PlayMode) !enum { white_won, black_won, draw } {
+    var history: History = try .init(gpa, 0x200);
     defer history.deinit(gpa);
 
     const starting_board: GameState = if (starting_pos) |f| try .parse(f) else .init;
@@ -484,7 +437,7 @@ pub fn main(init: std.process.Init) !void {
     const image = try rl.loadImageFromMemory(".png", @embedFile("chess_figures"));
     const chess_figures = try rl.loadTextureFromImage(image);
     defer chess_figures.unload();
-    const style: GameStateDisplayStyle = .{
+    const style: DisplayStyle = .{
         .font = try rl.getFontDefault(),
         .padding = 4,
         .white_square_color = .white,
