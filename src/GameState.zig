@@ -147,11 +147,11 @@ const castle_squares: std.EnumArray(Side, std.EnumArray(CastleSide, struct { kin
         .{
             .king = .{
                 .king_destination = .fromString("g1".*),
-                .rook = .{ .from = .fromString("h1".*), .to = .fromString("f1".*) },
+                .rook = Move.parse("h1f1") catch unreachable,
             },
             .queen = .{
                 .king_destination = .fromString("c1".*),
-                .rook = .{ .from = .fromString("a1".*), .to = .fromString("d1".*) },
+                .rook = Move.parse("a1d1") catch unreachable,
             },
         },
     ),
@@ -159,11 +159,11 @@ const castle_squares: std.EnumArray(Side, std.EnumArray(CastleSide, struct { kin
         .{
             .king = .{
                 .king_destination = .fromString("g8".*),
-                .rook = .{ .from = .fromString("h8".*), .to = .fromString("f8".*) },
+                .rook = Move.parse("h8f8") catch unreachable,
             },
             .queen = .{
                 .king_destination = .fromString("c8".*),
-                .rook = .{ .from = .fromString("a8".*), .to = .fromString("d8".*) },
+                .rook = Move.parse("a8d8") catch unreachable,
             },
         },
     ),
@@ -326,6 +326,7 @@ fn bishopMoves(pos: Position) [4]Position {
         .{ .row = pos.row + d, .file = pos.file - d },
     };
 }
+
 fn kingMoves(pos: Position) [8]Position {
     const a = @min(@min(pos.file, pos.row), 1);
     const b = @min(@min(7 - pos.file, 7 - pos.row), 1);
@@ -673,6 +674,48 @@ pub fn result(state: *const GameState) Result {
     }
 
     return .stalemate;
+}
+
+/// Hash for the purpose of figuring out freefold repetition.
+///
+/// Two positions are by definition "the same" if pieces of the same type and
+/// color occupy the same squares, the same player has the move, the remaining
+/// castling rights are the same and the possibility to capture en passant is the
+/// same.
+pub fn positionHashWithHasher(state: *const GameState, hasher: anytype) void {
+    std.hash.autoHash(hasher, state.cells);
+    std.hash.autoHash(hasher, state.en_passant);
+    std.hash.autoHash(hasher, state.turn);
+    std.hash.autoHash(hasher, state.can_castle);
+}
+
+pub fn positionHash(state: *const GameState) u64 {
+    var wayhash: std.hash.Wyhash = .init(0);
+    state.positionHashWithHasher(&wayhash);
+    return wayhash.final();
+}
+
+test positionHash {
+    {
+        const game1 = try GameState.parse("7k/6Q1/5K2/8/8/8/8/8 b - - 0 1");
+        const game2 = try GameState.parse("7k/6Q1/5K2/8/8/8/8/8 b - - 30 10");
+        try std.testing.expectEqual(game1.positionHash(), game2.positionHash());
+    }
+    {
+        const game1 = try GameState.parse("7k/6Q1/5K2/8/8/8/8/8 b - - 0 1");
+        const game2 = try GameState.parse("7k/6Q1/5K2/8/8/8/8/8 b K - 0 1");
+        try std.testing.expect(game1.positionHash() != game2.positionHash());
+    }
+    {
+        const game1 = try GameState.parse("7k/6Q1/5K2/8/8/8/8/8 b - - 0 1");
+        const game2 = try GameState.parse("7k/6Q1/5K2/8/8/8/8/8 b - e2 0 1");
+        try std.testing.expect(game1.positionHash() != game2.positionHash());
+    }
+    {
+        const game1 = try GameState.parse("7k/6Q1/5K2/8/8/8/8/8 b - - 0 1");
+        const game2 = try GameState.parse("7k/6Q1/5k2/8/8/8/8/8 b - e2 0 1");
+        try std.testing.expect(game1.positionHash() != game2.positionHash());
+    }
 }
 
 test "Checkmate detection correctness" {
