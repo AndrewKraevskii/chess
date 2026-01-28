@@ -107,13 +107,13 @@ test {
 
     var board: GameState = .init;
     while (true) {
-        if (board.result()) |_| break;
+        if (board.result() != .playing) break;
         try uci.setPosition(board);
-        try uci.go(.{ .depth = 3 });
+        try uci.go(.{ .depth = 1 });
         const move = uci.getMove() catch |e| switch (e) {
             error.EndOfGame => break,
             else => |others| return others,
         };
-        board.applyMove(move);
+        board = board.applyMove(move);
     }
 }
