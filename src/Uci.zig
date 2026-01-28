@@ -1,9 +1,12 @@
 const std = @import("std");
-const GameState = @import("GameState2.zig");
-const Uci = @This();
-const uci2 = @import("uci2.zig");
-const Move = GameState.Move;
 const Io = std.Io;
+
+const GameState = @import("GameState2.zig");
+const Move = GameState.Move;
+const uci2 = @import("uci2.zig");
+
+const Uci = @This();
+
 const log = std.log.scoped(.uci);
 
 io: Io,

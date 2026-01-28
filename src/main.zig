@@ -1,10 +1,14 @@
 const std = @import("std");
-const rl = @import("raylib");
+const Io = std.Io;
+
 const gui = @import("raygui");
+const rl = @import("raylib");
+
+const fen = @import("fen.zig");
 const GameState = @import("GameState2.zig");
 const rlx = @import("raylibx.zig");
 const Uci = @import("Uci.zig");
-const Io = std.Io;
+
 const log = std.log.scoped(.main);
 
 pub const std_options: std.Options = .{

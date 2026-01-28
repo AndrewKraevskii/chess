@@ -1,6 +1,10 @@
 const std = @import("std");
 
+const parse = @import("fen.zig").parse;
+pub const writeFen = @import("fen.zig").serialize;
+
 const GameState = @This();
+
 // fields here are orderd same as in FEN string.
 
 cells: [8][8]?Piece,
@@ -122,9 +126,6 @@ pub fn result(board: *GameState) ?State {
 pub fn get(board: *GameState, pos: Position) *?Piece {
     return &board.cells[7 - pos.row][pos.file];
 }
-
-pub const writeFen = @import("fen.zig").serialize;
-const parse = @import("fen.zig").parse;
 
 pub const Side = enum(u1) {
     white,
