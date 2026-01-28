@@ -6,9 +6,11 @@ const rl = @import("raylib");
 
 const fen = @import("fen.zig");
 const GameState = @import("GameState.zig");
+const History = @import("History.zig");
+const renderer = @import("renderer.zig");
+const DisplayStyle = renderer.DisplayStyle;
 const rlx = @import("raylibx.zig");
 const Uci = @import("Uci.zig");
-const History = @import("History.zig");
 
 const log = std.log.scoped(.main);
 
@@ -25,133 +27,14 @@ const PlayMode = enum {
     pvp,
 };
 
-fn pieceIndexInAtlas(piece: GameState.Piece.Type) f32 {
-    return switch (piece) {
-        .pawn => 0,
-        .rook => 1,
-        .knight => 2,
-        .bishop => 3,
-        .queen => 4,
-        .king => 5,
-    };
-}
-
-fn rectFromPositionAndSize(pos: rl.Vector2, size: rl.Vector2) rl.Rectangle {
-    return .{
-        .x = pos.x,
-        .y = pos.y,
-        .width = size.x,
-        .height = size.y,
-    };
-}
-
-fn drawPiece(piece: GameState.Piece, dest: rl.Rectangle, style: DisplayStyle) void {
-    style.atlas.drawPro(
-        .{
-            .x = pieceIndexInAtlas(piece.type) * 16,
-            .y = 0,
-            .width = 16,
-            .height = 16,
-        },
-        dest,
-        .init(0, 0),
-        0,
-        if (piece.side == .white) .white else .yellow,
-    );
-}
-
-const DisplayStyle = struct {
-    font: rl.Font,
-    padding: f32,
-    atlas: rl.Texture,
-    white_square_color: rl.Color,
-    black_square_color: rl.Color,
-    selected_square_color: rl.Color,
-    hovered_square_color: rl.Color,
-    border_color: rl.Color,
+const PlayerType = enum {
+    engine,
+    player,
 };
-
-const Selection = struct {
-    hovered_square: ?GameState.Position,
-    selected_square: ?GameState.Position,
-
-    pub const @"null": Selection = .{
-        .hovered_square = null,
-        .selected_square = null,
-    };
-};
-
-fn drawGameState(board: GameState, dest: rl.Rectangle, selection: Selection, style: DisplayStyle) void {
-    const cell_size = dest.width / 8;
-    var y: f32 = dest.y;
-    var parity: u1 = 1;
-    rl.drawRectangleRec(dest, style.border_color);
-    for (board.cells, 0..) |row, row_index| {
-        defer y += cell_size;
-        defer parity +%= 1;
-        var x: f32 = dest.x;
-        for (row, 0..) |cell, file| {
-            defer x += cell_size;
-            defer parity +%= 1;
-            const top_left_pos: rl.Vector2 = .init(x, y);
-
-            const this_square_hovered = if (selection.hovered_square) |pos| std.meta.eql(pos, .{
-                .row = @intCast(7 - row_index),
-                .file = @intCast(file),
-            }) else false;
-            const this_square_selected = if (selection.selected_square) |pos| std.meta.eql(pos, .{
-                .row = @intCast(7 - row_index),
-                .file = @intCast(file),
-            }) else false;
-
-            rl.drawRectangleV(
-                top_left_pos.addValue(style.padding / 2),
-                .init(cell_size - style.padding, cell_size - style.padding),
-                if (this_square_selected) style.selected_square_color else if (this_square_hovered) style.hovered_square_color else if (parity == 0) style.black_square_color else style.white_square_color,
-            );
-
-            if (cell) |piece_with_side| {
-                drawPiece(
-                    piece_with_side,
-                    rectFromPositionAndSize(
-                        top_left_pos.addValue(style.padding / 2),
-                        .init(cell_size - style.padding, cell_size - style.padding),
-                    ),
-                    style,
-                );
-            }
-        }
-    }
-}
-
-const Animation = struct {
-    piece: GameState.Piece,
-    move: GameState.MovePromotion,
-    // range [0;1]
-    progress: f32,
-
-    pub fn position(anim: @This()) rl.Vector2 {
-        // const t = anim.progress;
-        const x = anim.progress;
-        const t = @import("easing.zig").easeInOutCubic(x);
-
-        const from_row_f: f32 = @floatFromInt(anim.move.from.row);
-        const from_file_f: f32 = @floatFromInt(anim.move.from.file);
-        const to_row_f: f32 = @floatFromInt(anim.move.to.row);
-        const to_file_f: f32 = @floatFromInt(anim.move.to.file);
-
-        const result_row = std.math.lerp(from_row_f, to_row_f, t);
-        const result_file = std.math.lerp(from_file_f, to_file_f, t);
-        return .{
-            .y = (7 - result_row) / 8,
-            .x = (result_file) / 8,
-        };
-    }
-};
-
-var animation_speed: f32 = 10;
 
 pub fn doChess(uci: *Uci, random: std.Random, starting_pos: ?[]const u8, io: Io, gpa: std.mem.Allocator, style: DisplayStyle, play_mode: PlayMode) !enum { white_won, black_won, draw } {
+    var animation_speed: f32 = 10;
+
     var history: History = try .init(gpa, 0x200);
     defer history.deinit(gpa);
 
@@ -163,33 +46,24 @@ pub fn doChess(uci: *Uci, random: std.Random, starting_pos: ?[]const u8, io: Io,
     var engine_async_move: Io.Queue(GameState.MovePromotion) = .init(&buffer);
     var asked_engine = false;
 
-    var animation: ?Animation = null;
+    var animation: ?renderer.Animation = null;
     var paused: bool = false;
 
-    var whose_turn: union(enum) {
-        engine,
-        player: Selection,
-
-        fn switchTurn(whose_turn: *@This()) void {
-            whose_turn.* = switch (whose_turn.*) {
-                .engine => .{
-                    .player = .{
-                        .hovered_square = null,
-                        .selected_square = null,
-                    },
-                },
-                .player => .engine,
-            };
-        }
-    } = switch (play_mode) {
-        .eve => .engine,
-        .pvp => .{ .player = .null },
-        .pve => if (random.boolean()) .{ .player = .null } else .engine,
+    var players: std.EnumArray(GameState.Side, PlayerType) = switch (play_mode) {
+        .eve => .initFill(.engine),
+        .pvp => .initFill(.player),
+        .pve => .init(.{
+            .white = .engine,
+            .black = .player,
+        }),
     };
 
+    var selection: ?GameState.Position = null;
     while (!rl.windowShouldClose()) {
         var moves_buffer: [GameState.max_moves_from_position]GameState.Move = undefined;
         const moves = board.validMoves(&moves_buffer);
+
+        const whose_turn = players.getPtr(board.turn);
 
         switch (board.result()) {
             .playing => {},
@@ -205,22 +79,16 @@ pub fn doChess(uci: *Uci, random: std.Random, starting_pos: ?[]const u8, io: Io,
         if (rl.isKeyPressed(.space)) {
             paused = !paused;
         }
-
         if (!paused) {
             if (animation) |*anim| { // update
                 if (anim.progress >= 1) {
                     board = board.applyMove(anim.move);
-                    switch (play_mode) {
-                        .pve => whose_turn.switchTurn(),
-                        .pvp => {},
-                        .eve => {},
-                    }
                     if (play_mode == .pve) {} else {}
                     animation = null;
                 } else {
                     anim.progress += rl.getFrameTime() * animation_speed;
                 }
-            } else switch (whose_turn) {
+            } else switch (whose_turn.*) {
                 .engine => if (asked_engine) {
                     var result: [1]GameState.MovePromotion = undefined;
                     if (engine_async_move.get(io, &result, 0)) |n| {
@@ -239,7 +107,7 @@ pub fn doChess(uci: *Uci, random: std.Random, starting_pos: ?[]const u8, io: Io,
                     uci.getMoveAsync(io, &engine_async_move);
                     asked_engine = true;
                 },
-                .player => |*p| player: {
+                .player => player: {
                     if (rl.isKeyPressed(.u)) undo: {
                         board = history.undo() orelse break :undo;
                         break :player;
@@ -256,37 +124,37 @@ pub fn doChess(uci: *Uci, random: std.Random, starting_pos: ?[]const u8, io: Io,
                     const x: u3 = @intFromFloat(coords.x);
                     const y: u3 = @intFromFloat(coords.y);
 
-                    p.hovered_square = .{
+                    const hovered_square: GameState.Position = .{
                         .file = x,
                         .row = 7 - y,
                     };
 
                     if (rl.isMouseButtonPressed(.left)) {
-                        if (p.selected_square) |selected| {
-                            if (std.meta.eql(selected, p.hovered_square.?)) {
-                                p.selected_square = null;
+                        if (selection) |selected| {
+                            if (std.meta.eql(selected, hovered_square)) {
+                                selection = null;
                             } else {
-                                if (board.get(p.hovered_square.?).*) |piece| {
+                                if (board.get(hovered_square).*) |piece| {
                                     if (piece.side == board.turn) {
                                         std.debug.print("select different\n", .{});
-                                        p.selected_square = p.hovered_square;
+                                        selection = hovered_square;
                                         break :player;
                                     }
                                 }
-                                if (GameState.containsMove(moves, .{ .from = selected, .to = p.hovered_square.? })) {
+                                if (GameState.containsMove(moves, .{ .from = selected, .to = hovered_square })) {
                                     animation = .{
                                         .piece = board.get(selected).*.?,
-                                        .move = .{ .from = selected, .to = p.hovered_square.? },
+                                        .move = .{ .from = selected, .to = hovered_square },
                                         .progress = 0,
                                     };
-                                    p.* = .null;
-                                    try history.addHistoryEntry(board);
+                                    selection = null;
+                                    try history.addEntry(board);
                                 }
                             }
                         } else {
-                            if (board.get(p.hovered_square.?).*) |piece| {
+                            if (board.get(hovered_square).*) |piece| {
                                 if (piece.side == board.turn) {
-                                    p.selected_square = p.hovered_square;
+                                    selection = hovered_square;
                                 }
                             }
                         }
@@ -294,77 +162,25 @@ pub fn doChess(uci: *Uci, random: std.Random, starting_pos: ?[]const u8, io: Io,
                 },
             }
         }
-        { // draw
-            rl.beginDrawing();
-            defer rl.endDrawing();
-
-            rl.clearBackground(.black);
-
-            const side_length = @min(rlx.getScreenHeightf(), rlx.getScreenWidthf());
-            const cell_size = side_length / 8;
-            const center = rlx.getScreenCenter();
-            if (animation) |anim| {
-                var board_to_draw = board;
-                board_to_draw.get(anim.move.from).* = null;
-                drawGameState(
-                    board_to_draw,
-                    rlx.screenSquare(),
-                    if (whose_turn == .player) whose_turn.player else .{ .hovered_square = null, .selected_square = null },
-                    style,
-                );
-                drawPiece(
-                    anim.piece,
-                    rectFromPositionAndSize(
-                        anim.position().scale(side_length).addValue((style.padding - side_length) / 2).add(center),
-                        .init(cell_size - style.padding, cell_size - style.padding),
-                    ),
-                    style,
-                );
-            } else {
-                drawGameState(board, rlx.screenSquare(), if (whose_turn == .player) whose_turn.player else .null, style);
-                if (whose_turn == .player) {
-                    if (whose_turn.player.selected_square) |selected_square| {
-                        for (0..8) |y| {
-                            for (0..8) |x| {
-                                if (GameState.containsMove(moves, .{ .from = selected_square, .to = .{ .file = @intCast(x), .row = @intCast(7 - y) } })) {
-                                    const posf: rl.Vector2 = .init(@floatFromInt(x), @floatFromInt(y));
-                                    rl.drawCircleV(
-                                        posf.scale(side_length / 8).addValue((style.padding - side_length) / 2 + cell_size / 2).add(center),
-                                        10,
-                                        .green,
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            const font_size = cell_size * 0.3;
-            {
-                var x = center.x - cell_size * 4;
-                for (0..8) |i| {
-                    defer x += cell_size;
-                    var text: [2:0]u8 = .{ @intCast(i + 'a'), 0 };
-                    rl.drawTextEx(style.font, &text, .init(x + style.padding, center.y + cell_size * 4 - font_size), font_size, 1, .red);
-                }
-            }
-            {
-                var y = center.y - cell_size * 4;
-                for (0..8) |i| {
-                    defer y += cell_size;
-                    var text: [2:0]u8 = .{ @intCast(i + '1'), 0 };
-                    const size = rl.measureTextEx(style.font, &text, font_size, 1);
-                    rl.drawTextEx(style.font, &text, .init(center.x + cell_size * 4 - size.x * 1.5, y + style.padding), font_size, 1, .red);
-                }
-            } // gui
-            {
-                _ = gui.slider(.{
-                    .x = 0,
-                    .y = 0,
-                    .width = 100,
-                    .height = 10,
-                }, "Speed", "", &animation_speed, 0.01, 30);
-            }
+        // board
+        const hovered_square: ?GameState.Position = hovered: {
+            const mouse_pos = rl.getMousePosition();
+            if (!rl.checkCollisionPointRec(mouse_pos, rlx.screenSquare())) break :hovered null;
+            const normalized = rlx.normalizeInRectangle(rlx.screenSquare(), mouse_pos);
+            const coords = normalized.scale(8);
+            break :hovered .{ .file = @intFromFloat(coords.x), .row = 7 - @as(u3, @intFromFloat(coords.y)) };
+        };
+        renderer.render(board, animation, style, .{
+            .selected_square = selection,
+            .hovered_square = hovered_square,
+        }, moves);
+        { // gui
+            _ = gui.slider(.{
+                .x = 0,
+                .y = 0,
+                .width = 100,
+                .height = 10,
+            }, "Speed", "", &animation_speed, 0.01, 30);
         }
     }
     return error.WindowShouldClose;
@@ -493,7 +309,7 @@ pub fn main(init: std.process.Init) !void {
                 .black_won => .black,
             };
             const icon_side = font_size;
-            drawPiece(.{ .side = side, .type = .king }, .{ .x = text_pos.x - icon_side, .y = text_pos.y, .width = icon_side, .height = icon_side }, style);
+            renderer.drawPiece(.{ .side = side, .type = .king }, .{ .x = text_pos.x - icon_side, .y = text_pos.y, .width = icon_side, .height = icon_side }, style);
         }
         try io.sleep(.fromSeconds(1), .awake);
     }

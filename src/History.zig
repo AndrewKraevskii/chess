@@ -32,7 +32,7 @@ pub fn redo(history: *@This()) ?GameState {
     return event_to_redo;
 }
 
-pub fn addHistoryEntry(
+pub fn addEntry(
     history: *@This(),
     entry: GameState,
 ) !void {
