@@ -463,6 +463,11 @@ pub fn movesRaw(state: *const GameState, buffer: *[GameState.max_moves_from_posi
                         if (target_piece.side == turn) {
                             break;
                         }
+                        list.appendAssumeCapacity(.{
+                            .from = pos,
+                            .to = moved_pos,
+                        });
+                        break;
                     }
 
                     list.appendAssumeCapacity(.{
@@ -863,6 +868,12 @@ test "Bishop move count is always between 7 and 13" {
             try std.testing.expectEqual(7 + two_distances_from_center, count);
         }
     }
+}
+
+test "Bug where bishop jumps to unrelated position" {
+    var game: GameState = try parse("r1bqk1nr/ppp2ppp/1b1p4/4p3/1PP1P3/P4n2/1B1PBPPP/RN1QK2R w KQkq - 0 8");
+    var buffer: [GameState.max_moves_from_position]Move = undefined;
+    _ = game.validMoves(&buffer);
 }
 
 test "If no pieces 0 moves" {
