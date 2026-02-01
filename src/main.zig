@@ -59,7 +59,14 @@ pub fn doChess(uci: *Uci, random: std.Random, starting_pos: ?[]const u8, io: Io,
     };
 
     var selection: ?GameState.Position = null;
+
     while (!rl.windowShouldClose()) {
+        var turn_style: DisplayStyle = style;
+        turn_style.board_orientation = switch (board.turn) {
+            .black => .black_bottom,
+            .white => .white_bottom,
+        };
+
         var moves_buffer: [GameState.max_moves_from_position]GameState.Move = undefined;
         const moves = board.validMoves(&moves_buffer);
 
@@ -124,10 +131,10 @@ pub fn doChess(uci: *Uci, random: std.Random, starting_pos: ?[]const u8, io: Io,
                     const x: u3 = @intFromFloat(coords.x);
                     const y: u3 = @intFromFloat(coords.y);
 
-                    const hovered_square: GameState.Position = .{
+                    const hovered_square: GameState.Position = turn_style.board_orientation.pos(.{
                         .file = x,
-                        .row = 7 - y,
-                    };
+                        .row = y,
+                    });
 
                     if (rl.isMouseButtonPressed(.left)) {
                         if (selection) |selected| {
@@ -142,6 +149,7 @@ pub fn doChess(uci: *Uci, random: std.Random, starting_pos: ?[]const u8, io: Io,
                                     }
                                 }
                                 if (GameState.containsMove(moves, .{ .from = selected, .to = hovered_square })) {
+                                    log.info("there is selected", .{});
                                     animation = .{
                                         .piece = board.get(selected).*.?,
                                         .move = .{ .from = selected, .to = hovered_square },
@@ -149,6 +157,8 @@ pub fn doChess(uci: *Uci, random: std.Random, starting_pos: ?[]const u8, io: Io,
                                     };
                                     selection = null;
                                     try history.addEntry(board);
+                                } else {
+                                    log.info("nope", .{});
                                 }
                             }
                         } else {
@@ -168,9 +178,9 @@ pub fn doChess(uci: *Uci, random: std.Random, starting_pos: ?[]const u8, io: Io,
             if (!rl.checkCollisionPointRec(mouse_pos, rlx.screenSquare())) break :hovered null;
             const normalized = rlx.normalizeInRectangle(rlx.screenSquare(), mouse_pos);
             const coords = normalized.scale(8);
-            break :hovered .{ .file = @intFromFloat(coords.x), .row = 7 - @as(u3, @intFromFloat(coords.y)) };
+            break :hovered turn_style.board_orientation.pos(.{ .file = @intFromFloat(coords.x), .row = @as(u3, @intFromFloat(coords.y)) });
         };
-        renderer.render(board, animation, style, .{
+        renderer.render(board, animation, turn_style, .{
             .selected_square = selection,
             .hovered_square = hovered_square,
         }, moves);
@@ -222,6 +232,9 @@ pub fn main(init: std.process.Init) !void {
     const arena = program_arena;
     const io = init.io;
 
+    rl.setConfigFlags(.{
+        .vsync_hint = true,
+    });
     const self_path = try std.process.executableDirPathAlloc(io, arena);
     const engine_path = try std.fs.path.join(arena, &.{ self_path, "stockfish" });
 
@@ -254,6 +267,7 @@ pub fn main(init: std.process.Init) !void {
     const chess_figures = try rl.loadTextureFromImage(image);
     defer chess_figures.unload();
     const style: DisplayStyle = .{
+        .board_orientation = .white_bottom,
         .font = try rl.getFontDefault(),
         .padding = 4,
         .white_square_color = .white,
