@@ -148,11 +148,19 @@ pub fn doChess(uci: *Uci, random: std.Random, starting_pos: ?[]const u8, io: Io,
                                         break :player;
                                     }
                                 }
-                                if (GameState.containsMove(moves, .{ .from = selected, .to = hovered_square })) {
+                                const move: GameState.Move = .{ .from = selected, .to = hovered_square };
+                                if (GameState.containsMove(
+                                    moves,
+                                    move,
+                                )) {
                                     log.info("there is selected", .{});
                                     animation = .{
                                         .piece = board.get(selected).*.?,
-                                        .move = .{ .from = selected, .to = hovered_square },
+                                        .move = .{
+                                            .from = move.from,
+                                            .to = move.to,
+                                            .promotion = if (board.isPromotion(move)) .queen else null,
+                                        },
                                         .progress = 0,
                                     };
                                     selection = null;

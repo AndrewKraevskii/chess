@@ -354,6 +354,11 @@ fn rookMoves(pos: Position) [4]Position {
     };
 }
 
+pub fn isPromotion(state: *const GameState, move: Move) bool {
+    const piece = state.getConst(move.from).?;
+    return piece.type == .pawn and move.to.row == pawns_promotion_raw.get(piece.side);
+}
+
 pub fn movesRaw(state: *const GameState, buffer: *[GameState.max_moves_from_position]Move) []Move {
     var list: std.ArrayList(Move) = .initBuffer(buffer);
     const turn = state.turn;
@@ -540,7 +545,7 @@ pub fn applyMove(state: *const GameState, move: MovePromotion) GameState {
         .en_passant = new_en_passant,
     };
 
-    copy.get(move.to).* = if (from.type == .pawn and pawns_promotion_raw.get(turn) == move.to.row)
+    copy.get(move.to).* = if (state.isPromotion(.{ .from = move.from, .to = move.to }))
         .{
             .side = from.side,
             .type = move.promotion.?,
@@ -693,6 +698,10 @@ pub fn positionHash(state: *const GameState) u64 {
     var wayhash: std.hash.Wyhash = .init(0);
     state.positionHashWithHasher(&wayhash);
     return wayhash.final();
+}
+
+pub fn format(state: GameState, w: *std.Io.Writer) std.Io.Writer.Error!void {
+    try writeFen(&state, w);
 }
 
 test positionHash {
