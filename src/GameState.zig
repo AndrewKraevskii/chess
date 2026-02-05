@@ -527,10 +527,20 @@ pub fn applyMove(state: *const GameState, move: MovePromotion) GameState {
         .initFill(.initEmpty())
     else if (from.type == .rook) can: {
         var can_castle_copy = state.can_castle;
-        var iter = can_castle_copy.get(turn).iterator();
-        while (iter.next()) |castle_side| {
-            if (std.meta.eql(castle_squares.get(turn).get(castle_side).rook.from, move.from)) {
-                can_castle_copy.getPtr(turn).remove(castle_side);
+        {
+            var iter = can_castle_copy.get(turn).iterator();
+            while (iter.next()) |castle_side| {
+                if (std.meta.eql(castle_squares.get(turn).get(castle_side).rook.from, move.from)) {
+                    can_castle_copy.getPtr(turn).remove(castle_side);
+                }
+            }
+        }
+        {
+            var iter = can_castle_copy.get(turn.next()).iterator();
+            while (iter.next()) |castle_side| {
+                if (std.meta.eql(castle_squares.get(turn.next()).get(castle_side).rook.from, move.to)) {
+                    can_castle_copy.getPtr(turn.next()).remove(castle_side);
+                }
             }
         }
         break :can can_castle_copy;
@@ -1091,4 +1101,14 @@ test "Queen eating rook caused invalid castling update" {
     const moved = game.applyMove(try .parse("c6h1"));
 
     std.debug.assert(!moved.can_castle.get(.white).contains(.king));
+}
+
+test "Rook eating rook at the castling start position" {
+    const game: GameState = try .parse("rnb1kbnr/2pp4/R3q1p1/1P2PpN1/5P1p/4B1P1/1PP1P2P/1N1QKB1R w Kkq - 0 13"); // white pawn on h7
+    const moved = game.applyMove(try .parse("a6a8"));
+
+    const expected: GameState = try .parse("Rnb1kbnr/2pp4/4q1p1/1P2PpN1/5P1p/4B1P1/1PP1P2P/1N1QKB1R b Kk - 0 13");
+    try std.testing.expectEqual(expected, moved);
+
+    std.debug.assert(!moved.can_castle.get(.black).contains(.queen));
 }
