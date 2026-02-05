@@ -534,6 +534,18 @@ pub fn applyMove(state: *const GameState, move: MovePromotion) GameState {
             }
         }
         break :can can_castle_copy;
+    } else if (to) |target| can: {
+        if (target.type == .rook) {
+            var can_castle_copy = state.can_castle;
+            var iter = can_castle_copy.get(turn.next()).iterator();
+            while (iter.next()) |castle_side| {
+                if (std.meta.eql(castle_squares.get(turn.next()).get(castle_side).rook.from, move.to)) {
+                    can_castle_copy.getPtr(turn.next()).remove(castle_side);
+                }
+            }
+            break :can can_castle_copy;
+        }
+        break :can state.can_castle;
     } else state.can_castle;
 
     var copy: GameState = .{
@@ -1072,4 +1084,11 @@ test "Pawn promotion" {
         const expected = try GameState.parse("7" ++ piece_str ++ "/8/8/8/8/8/8/8 b - - 0 1");
         try std.testing.expectEqual(expected, promoted);
     }
+}
+
+test "Queen eating rook caused invalid castling update" {
+    const game = try GameState.parse("rnb1kbnr/1p1ppppp/p1q5/2p5/5PP1/2N1P3/PPPPQ2P/R1B1KBNR b KQkq - 2 5"); // white pawn on h7
+    const moved = game.applyMove(try .parse("c6h1"));
+
+    std.debug.assert(!moved.can_castle.get(.white).contains(.king));
 }
