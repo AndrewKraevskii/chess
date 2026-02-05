@@ -2,6 +2,7 @@ const std = @import("std");
 
 const rl = @import("raylib");
 const rlx = @import("raylibx.zig");
+const log = std.log.scoped(.renderer);
 
 const GameState = @import("GameState.zig");
 
@@ -87,7 +88,6 @@ pub fn drawGameState(board: GameState, dest: rl.Rectangle, selection: Selection,
     var y: f32 = dest.y;
     var parity: u1 = 1;
     rl.drawRectangleRec(dest, style.border_color);
-    std.log.info("Selected: {any}", .{selection.selected_square});
 
     const hovered_square: ?GameState.Position = if (selection.hovered_square) |hovered_square| hovered_square else null;
     const selected_square: ?GameState.Position = if (selection.selected_square) |selected_square| selected_square else null;
@@ -105,10 +105,6 @@ pub fn drawGameState(board: GameState, dest: rl.Rectangle, selection: Selection,
 
             const this_square_hovered = if (hovered_square) |pos| std.meta.eql(pos, current_pos) else false;
             const this_square_selected = if (selected_square) |pos| std.meta.eql(pos, current_pos) else false;
-
-            if (this_square_selected) {
-                std.log.info("Selected: {any}", .{board.getConst(selected_square.?)});
-            }
 
             rl.drawRectangleV(
                 top_left_pos.addValue(style.padding / 2),

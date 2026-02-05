@@ -6,7 +6,7 @@ const rl = @import("raylib");
 
 const fen = @import("fen.zig");
 const GameState = @import("GameState.zig");
-const History = @import("History.zig");
+const Chess = @import("Chess.zig");
 const renderer = @import("renderer.zig");
 const DisplayStyle = renderer.DisplayStyle;
 const rlx = @import("raylibx.zig");
@@ -35,12 +35,10 @@ const PlayerType = enum {
 pub fn doChess(uci: *Uci, random: std.Random, starting_pos: ?[]const u8, io: Io, gpa: std.mem.Allocator, style: DisplayStyle, play_mode: PlayMode) !enum { white_won, black_won, draw } {
     var animation_speed: f32 = 10;
 
-    var history: History = try .init(gpa, 0x200);
-    defer history.deinit(gpa);
-
     const starting_board: GameState = if (starting_pos) |f| try .parse(f) else .init;
 
-    var board: GameState = starting_board;
+    var chess: Chess = .init;
+    try chess.setPosition(gpa, starting_board);
 
     var buffer: [1]GameState.MovePromotion = undefined;
     var engine_async_move: Io.Queue(GameState.MovePromotion) = .init(&buffer);
@@ -53,8 +51,8 @@ pub fn doChess(uci: *Uci, random: std.Random, starting_pos: ?[]const u8, io: Io,
         .eve => .initFill(.engine),
         .pvp => .initFill(.player),
         .pve => .init(.{
-            .white = .engine,
-            .black = .player,
+            .white = .player,
+            .black = .engine,
         }),
     };
 
@@ -62,11 +60,26 @@ pub fn doChess(uci: *Uci, random: std.Random, starting_pos: ?[]const u8, io: Io,
 
     while (!rl.windowShouldClose()) {
         var turn_style: DisplayStyle = style;
-        turn_style.board_orientation = switch (board.turn) {
-            .black => .black_bottom,
-            .white => .white_bottom,
-        };
+        const board = chess.activeBoard().?;
 
+        switch (play_mode) {
+            .pvp => {
+                turn_style.board_orientation = switch (board.turn) {
+                    .black => .black_bottom,
+                    .white => .white_bottom,
+                };
+            },
+            .eve => {
+                turn_style.board_orientation = .white_bottom;
+            },
+            .pve => {
+                if (players.get(.black) == .player) {
+                    turn_style.board_orientation = .black_bottom;
+                } else {
+                    turn_style.board_orientation = .white_bottom;
+                }
+            },
+        }
         var moves_buffer: [GameState.max_moves_from_position]GameState.Move = undefined;
         const moves = board.validMoves(&moves_buffer);
 
@@ -89,7 +102,7 @@ pub fn doChess(uci: *Uci, random: std.Random, starting_pos: ?[]const u8, io: Io,
         if (!paused) {
             if (animation) |*anim| { // update
                 if (anim.progress >= 1) {
-                    board = board.applyMove(anim.move);
+                    try chess.setNext(gpa, board.applyMove(anim.move));
                     if (play_mode == .pve) {} else {}
                     animation = null;
                 } else {
@@ -101,7 +114,7 @@ pub fn doChess(uci: *Uci, random: std.Random, starting_pos: ?[]const u8, io: Io,
                     if (engine_async_move.get(io, &result, 0)) |n| {
                         if (n == 1) {
                             animation = .{
-                                .piece = board.get(result[0].from).*.?,
+                                .piece = board.getConst(result[0].from).?,
                                 .move = result[0],
                                 .progress = 0,
                             };
@@ -115,12 +128,17 @@ pub fn doChess(uci: *Uci, random: std.Random, starting_pos: ?[]const u8, io: Io,
                     asked_engine = true;
                 },
                 .player => player: {
-                    if (rl.isKeyPressed(.u)) undo: {
-                        board = history.undo() orelse break :undo;
+                    if (rl.isKeyPressed(.u)) {
+                        chess.undo();
+                        if (play_mode == .pve)
+                            chess.undo();
                         break :player;
                     }
-                    if (rl.isKeyPressed(.r)) redo: {
-                        board = history.redo() orelse break :redo;
+
+                    if (rl.isKeyPressed(.r)) {
+                        chess.redo();
+                        if (play_mode == .pve)
+                            chess.redo();
                         break :player;
                     }
 
@@ -141,7 +159,7 @@ pub fn doChess(uci: *Uci, random: std.Random, starting_pos: ?[]const u8, io: Io,
                             if (std.meta.eql(selected, hovered_square)) {
                                 selection = null;
                             } else {
-                                if (board.get(hovered_square).*) |piece| {
+                                if (board.getConst(hovered_square)) |piece| {
                                     if (piece.side == board.turn) {
                                         std.debug.print("select different\n", .{});
                                         selection = hovered_square;
@@ -155,7 +173,7 @@ pub fn doChess(uci: *Uci, random: std.Random, starting_pos: ?[]const u8, io: Io,
                                 )) {
                                     log.info("there is selected", .{});
                                     animation = .{
-                                        .piece = board.get(selected).*.?,
+                                        .piece = board.getConst(selected).?,
                                         .move = .{
                                             .from = move.from,
                                             .to = move.to,
@@ -164,13 +182,12 @@ pub fn doChess(uci: *Uci, random: std.Random, starting_pos: ?[]const u8, io: Io,
                                         .progress = 0,
                                     };
                                     selection = null;
-                                    try history.addEntry(board);
                                 } else {
                                     log.info("nope", .{});
                                 }
                             }
                         } else {
-                            if (board.get(hovered_square).*) |piece| {
+                            if (board.getConst(hovered_square)) |piece| {
                                 if (piece.side == board.turn) {
                                     selection = hovered_square;
                                 }
@@ -188,10 +205,11 @@ pub fn doChess(uci: *Uci, random: std.Random, starting_pos: ?[]const u8, io: Io,
             const coords = normalized.scale(8);
             break :hovered turn_style.board_orientation.pos(.{ .file = @intFromFloat(coords.x), .row = @as(u3, @intFromFloat(coords.y)) });
         };
-        renderer.render(board, animation, turn_style, .{
+        renderer.render(chess.activeBoard().?, animation, turn_style, .{
             .selected_square = selection,
             .hovered_square = hovered_square,
         }, moves);
+
         { // gui
             _ = gui.slider(.{
                 .x = 0,
@@ -341,4 +359,5 @@ test {
     _ = @import("Uci.zig");
     _ = @import("uci2.zig");
     _ = @import("GameState.zig");
+    _ = @import("Chess.zig");
 }

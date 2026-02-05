@@ -124,7 +124,7 @@ pub fn getCommand(reader: *Reader) error{ ReadFailed, StreamTooLong }!?Command {
                 } };
             },
             .bestmove => {
-                std.log.info("best move token", .{});
+                log.info("best move token", .{});
                 const move = tokens.next() orelse continue;
 
                 if (std.mem.eql(u8, move, "(none)")) {

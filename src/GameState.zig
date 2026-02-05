@@ -384,6 +384,9 @@ pub fn movesRaw(state: *const GameState, buffer: *[GameState.max_moves_from_posi
                     while (iter.next()) |castle_side| {
                         std.debug.assert(std.meta.eql(king_start_position.get(turn), pos));
                         const castle_move = castle_squares.get(turn).get(castle_side);
+                        if (state.getConst(castle_move.rook.from).?.side != turn) {
+                            std.debug.print("{f}\n{any} {any}\n", .{ state, castle_move.rook.from, state.getConst(castle_move.rook.from).?.type });
+                        }
                         std.debug.assert(state.getConst(castle_move.rook.from).?.type == .rook);
                         std.debug.assert(state.getConst(castle_move.rook.from).?.side == turn);
 
