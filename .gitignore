@@ -1,5 +1,9 @@
+# Zig
 zig-out/
 .zig-cache/
+zig-pkg/
+
+
 *.nnue
 flamegraph.svg
 perf.data*
