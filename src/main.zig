@@ -33,19 +33,22 @@ const PlayerType = enum {
 };
 
 pub fn doChess(uci: *Uci, queue: *Io.Queue(GameState.MovePromotion), random: std.Random, starting_pos: ?[]const u8, io: Io, gpa: std.mem.Allocator, style: DisplayStyle, play_mode: PlayMode) !enum { white_won, black_won, draw } {
+    _ = random;
     var animation_speed: f32 = 10;
 
-    const starting_board: GameState = if (starting_pos) |f| try .parse(f) else .init;
-
-    var chess: Chess = .init;
-    try chess.setPosition(gpa, starting_board);
+    var chess: Chess = chess: {
+        var chess: Chess = .init;
+        const starting_board: GameState = if (starting_pos) |f| try .parse(f) else .init;
+        try chess.setPosition(gpa, starting_board);
+        break :chess chess;
+    };
 
     var asked_engine = false;
 
     var animation: ?renderer.Animation = null;
     var paused: bool = false;
 
-    var players: std.EnumArray(GameState.Side, PlayerType) = switch (play_mode) {
+    const players: std.EnumArray(GameState.Side, PlayerType) = switch (play_mode) {
         .eve => .initFill(.engine),
         .pvp => .initFill(.player),
         .pve => .init(.{
@@ -59,29 +62,23 @@ pub fn doChess(uci: *Uci, queue: *Io.Queue(GameState.MovePromotion), random: std
     while (!rl.windowShouldClose()) {
         var turn_style: DisplayStyle = style;
         const board = chess.activeBoard().?;
+        const turn = board.turn;
 
-        switch (play_mode) {
-            .pvp => {
-                turn_style.board_orientation = switch (board.turn) {
-                    .black => .black_bottom,
-                    .white => .white_bottom,
-                };
+        turn_style.board_orientation = switch (play_mode) {
+            .pvp => switch (turn) {
+                .black => .black_bottom,
+                .white => .white_bottom,
             },
-            .eve => {
-                turn_style.board_orientation = .white_bottom;
+            .eve => .white_bottom,
+            .pve => switch (players.get(.black)) {
+                .player => .black_bottom,
+                .engine => .white_bottom,
             },
-            .pve => {
-                if (players.get(.black) == .player) {
-                    turn_style.board_orientation = .black_bottom;
-                } else {
-                    turn_style.board_orientation = .white_bottom;
-                }
-            },
-        }
+        };
         var moves_buffer: [GameState.max_moves_from_position]GameState.Move = undefined;
         const moves = board.validMoves(&moves_buffer);
 
-        const whose_turn = players.getPtr(board.turn);
+        const whose_turn = players.get(board.turn);
 
         switch (board.result()) {
             .playing => {},
@@ -106,7 +103,7 @@ pub fn doChess(uci: *Uci, queue: *Io.Queue(GameState.MovePromotion), random: std
                 } else {
                     anim.progress += rl.getFrameTime() * animation_speed;
                 }
-            } else switch (whose_turn.*) {
+            } else switch (whose_turn) {
                 .engine => if (asked_engine) {
                     var result: [1]GameState.MovePromotion = undefined;
                     if (queue.get(io, &result, 0)) |n| {
@@ -121,7 +118,9 @@ pub fn doChess(uci: *Uci, queue: *Io.Queue(GameState.MovePromotion), random: std
                     } else |e| return e;
                 } else {
                     try uci.setPosition(board);
-                    try uci.go(.{ .depth = @max(1, random.int(u3)) });
+                    try uci.go(.{
+                        .depth = 1,
+                    });
                     uci.getMoveAsync(io, queue);
                     asked_engine = true;
                 },
@@ -309,6 +308,7 @@ pub fn main(init: std.process.Init) !void {
     while (!rl.windowShouldClose()) {
         var uci = try Uci.connect(io, &uci_read_buffer, &uci_write_buffer, engine_path);
         defer {
+            std.process.cleanExit(io);
             log.info("Exiting game loop", .{});
             uci.quit() catch |e| {
                 log.err("can't deinit engine: {s}", .{@errorName(e)});

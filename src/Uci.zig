@@ -52,8 +52,7 @@ pub fn getMoveAsync(self: *@This(), io: Io, queue: *Io.Queue(Move)) void {
                 },
             }) catch |e|
                 switch (e) {
-                    error.Canceled => {},
-                    error.Closed => {},
+                    error.Canceled, error.Closed => {},
                 };
         }
     }.move, .{ self, io, queue });
@@ -73,29 +72,43 @@ pub fn getMove(self: *@This()) !Move {
 }
 
 pub fn setPosition(self: *@This(), board: GameState) !void {
-    {
-        var buffer: [0x100]u8 = undefined;
-        var fixed: std.Io.Writer = .fixed(&buffer);
-        try board.writeFen(&fixed);
-        log.debug("set position: {s}", .{fixed.buffered()});
-    }
-    try uci2.setPosition(&self.writer.interface, board);
-    try self.writer.interface.flush();
+    try send(&self.writer.interface, .{ .set_position = board });
 }
 
 pub fn quit(self: *@This()) !void {
-    try self.writer.interface.writeAll("quit\n");
-    try self.writer.interface.flush();
+    try send(&self.writer.interface, .quit);
     _ = try self.engine_process.wait(self.io);
 
     self.group.cancel(self.io);
     log.info("quit engine", .{});
 }
 
-pub fn go(self: *@This(), config: uci2.GoConfig) !void {
-    try uci2.go(&self.writer.interface, config);
-    try self.writer.interface.flush();
+pub fn go(self: *@This(), config: uci2.GoConfig) Io.Writer.Error!void {
+    try send(&self.writer.interface, .{ .go = config });
 }
+
+fn send(w: *Io.Writer, command: Command) Io.Writer.Error!void {
+    switch (command) {
+        .go => |config| {
+            std.log.debug("go", .{});
+            try w.print("go depth {d}\n", .{config.depth});
+        },
+        .quit => {
+            try w.writeAll("quit\n");
+        },
+        .set_position => |board| {
+            log.debug("set position: {f}", .{board});
+            try w.print("position fen {f}\n", .{board});
+        },
+    }
+    try w.flush();
+}
+
+const Command = union(enum) {
+    go: uci2.GoConfig,
+    quit,
+    set_position: GameState,
+};
 
 test {
     if (true) return error.SkipZigTest;

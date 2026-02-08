@@ -17,12 +17,6 @@ pub fn init(stdin: *Reader, stdout: *Writer) void {
     };
 }
 
-pub fn setPosition(w: *Writer, c: GameState) !void {
-    try w.writeAll("position fen ");
-    try c.writeFen(w);
-    try w.writeAll("\n");
-}
-
 pub const GoConfig = struct {
     // searchmoves: []const Move = &.{},
     // ponde: void = {},
@@ -37,11 +31,6 @@ pub const GoConfig = struct {
     // movetime: void = {},
     // infinit: void = {},
 };
-
-pub fn go(w: *Writer, config: GoConfig) !void {
-    std.log.debug("go", .{});
-    try w.print("go depth {d}\n", .{config.depth});
-}
 
 const Command = union(enum) {
     id: struct {
