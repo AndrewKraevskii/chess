@@ -526,9 +526,12 @@ pub fn applyMove(state: *const GameState, move: MovePromotion) GameState {
         @FieldType(GameState, "can_castle").initFill(.initEmpty()),
     ))
         .initFill(.initEmpty())
-    else if (from.type == .king)
-        .initFill(.initEmpty())
-    else if (from.type == .rook) can: {
+    else if (from.type == .king) can: {
+        var can_castle_copy = state.can_castle;
+        can_castle_copy.getPtr(turn).remove(.king);
+        can_castle_copy.getPtr(turn).remove(.queen);
+        break :can can_castle_copy;
+    } else if (from.type == .rook) can: {
         var can_castle_copy = state.can_castle;
         {
             var iter = can_castle_copy.get(turn).iterator();
@@ -1114,4 +1117,11 @@ test "Rook eating rook at the castling start position" {
     try std.testing.expectEqual(expected, moved);
 
     std.debug.assert(!moved.can_castle.get(.black).contains(.queen));
+}
+
+test "When castling is temporarely blocked it should not affect its avalability in fen string" {
+    const game: GameState = try .parse("1r1qk2r/p1p2ppp/2pb1n2/3p2Q1/3P2b1/2N1B3/PPP2PPP/R3K1NR b KQk - 5 10");
+    const moved = game.applyMove(try .parse("e8g8"));
+    const expected: GameState = try .parse("1r1q1rk1/p1p2ppp/2pb1n2/3p2Q1/3P2b1/2N1B3/PPP2PPP/R3K1NR w KQ - 6 11");
+    try std.testing.expectEqual(expected, moved);
 }
