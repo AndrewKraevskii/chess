@@ -50,7 +50,11 @@ pub fn getMoveAsync(self: *@This(), io: Io, queue: *Io.Queue(Move)) void {
                     log.err("{s}", .{@errorName(other)});
                     return;
                 },
-            }) catch @panic("TODO: handle");
+            }) catch |e|
+                switch (e) {
+                    error.Canceled => {},
+                    error.Closed => {},
+                };
         }
     }.move, .{ self, io, queue });
 }

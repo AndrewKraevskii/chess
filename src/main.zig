@@ -32,7 +32,7 @@ const PlayerType = enum {
     player,
 };
 
-pub fn doChess(uci: *Uci, random: std.Random, starting_pos: ?[]const u8, io: Io, gpa: std.mem.Allocator, style: DisplayStyle, play_mode: PlayMode) !enum { white_won, black_won, draw } {
+pub fn doChess(uci: *Uci, queue: *Io.Queue(GameState.MovePromotion), random: std.Random, starting_pos: ?[]const u8, io: Io, gpa: std.mem.Allocator, style: DisplayStyle, play_mode: PlayMode) !enum { white_won, black_won, draw } {
     var animation_speed: f32 = 10;
 
     const starting_board: GameState = if (starting_pos) |f| try .parse(f) else .init;
@@ -40,8 +40,6 @@ pub fn doChess(uci: *Uci, random: std.Random, starting_pos: ?[]const u8, io: Io,
     var chess: Chess = .init;
     try chess.setPosition(gpa, starting_board);
 
-    var buffer: [1]GameState.MovePromotion = undefined;
-    var engine_async_move: Io.Queue(GameState.MovePromotion) = .init(&buffer);
     var asked_engine = false;
 
     var animation: ?renderer.Animation = null;
@@ -111,7 +109,7 @@ pub fn doChess(uci: *Uci, random: std.Random, starting_pos: ?[]const u8, io: Io,
             } else switch (whose_turn.*) {
                 .engine => if (asked_engine) {
                     var result: [1]GameState.MovePromotion = undefined;
-                    if (engine_async_move.get(io, &result, 0)) |n| {
+                    if (queue.get(io, &result, 0)) |n| {
                         if (n == 1) {
                             animation = .{
                                 .piece = board.getConst(result[0].from).?,
@@ -124,7 +122,7 @@ pub fn doChess(uci: *Uci, random: std.Random, starting_pos: ?[]const u8, io: Io,
                 } else {
                     try uci.setPosition(board);
                     try uci.go(.{ .depth = @max(1, random.int(u3)) });
-                    uci.getMoveAsync(io, &engine_async_move);
+                    uci.getMoveAsync(io, queue);
                     asked_engine = true;
                 },
                 .player => player: {
@@ -316,9 +314,14 @@ pub fn main(init: std.process.Init) !void {
                 log.err("can't deinit engine: {s}", .{@errorName(e)});
             };
         }
+        var buffer: [1]GameState.MovePromotion = undefined;
+
+        var engine_async_move: Io.Queue(GameState.MovePromotion) = .init(&buffer);
+        defer engine_async_move.close(io);
 
         const result = doChess(
             &uci,
+            &engine_async_move,
             random.random(),
             fen_string,
             io,
