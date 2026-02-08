@@ -214,6 +214,44 @@ pub fn doChess(uci: *Uci, queue: *Io.Queue(GameState.MovePromotion), random: std
                 .width = 100,
                 .height = 10,
             }, "Speed", "", &animation_speed, 0.01, 30);
+            _ = gui.label(.{
+                .x = 0,
+                .y = 10,
+                .width = 200,
+                .height = 10,
+            }, uci.id.name orelse "");
+            _ = gui.label(.{
+                .x = 0,
+                .y = 20,
+                .width = 200,
+                .height = 10,
+            }, uci.id.author orelse "");
+            var pos: f32 = 20;
+            for (uci.options.keys(), uci.options.values()) |key, value| {
+                pos += 10;
+                switch (value) {
+                    .button => {
+                        if (gui.button(.{
+                            .x = 0,
+                            .y = pos,
+                            .width = 200,
+                            .height = 10,
+                        }, key)) {
+                            try uci.send(.{ .set_option = "A," });
+                        }
+                    },
+                    .check => |check| {
+                        var b = check.default;
+                        _ = gui.checkBox(.{
+                            .x = 0,
+                            .y = pos,
+                            .width = 10,
+                            .height = 10,
+                        }, key, &b);
+                    },
+                    else => {},
+                }
+            }
         }
     }
     return error.WindowShouldClose;
@@ -306,7 +344,7 @@ pub fn main(init: std.process.Init) !void {
     var uci_write_buffer: [0x1000]u8 = undefined;
 
     while (!rl.windowShouldClose()) {
-        var uci = try Uci.connect(io, &uci_read_buffer, &uci_write_buffer, engine_path);
+        var uci = try Uci.connect(io, arena, &uci_read_buffer, &uci_write_buffer, engine_path);
         defer {
             std.process.cleanExit(io);
             log.info("Exiting game loop", .{});
