@@ -5,8 +5,8 @@
     .minimum_zig_version = "0.16.0-dev.2522+d84a638e8",
     .dependencies = .{
         .Stockfish = .{
-            .url = "git+https://github.com/AndrewKraevskii/Stockfish?ref=update_to_0.15.2#3ab2e1e7c7d0f5f894e04ad424838be302b6e670",
-            .hash = "stockfish-17.0.0-CcetzuWcAAA3mGeQ9t0ybUgcd6IX__pHK2tNt4z2b88R",
+            .url = "git+https://github.com/allyourcodebase/Stockfish#b68764ad7f299013b39b532691c8aa00956d236c",
+            .hash = "stockfish-18.0.0-CcetzgedAAC7d3doeQkrkL_7zgF5YdpUytoI_FOtSKur",
         },
         .raylib = .{
             .url = "git+https://github.com/AndrewKraevskii/raylib-zig.git?ref=update_to_zig_0.16.0-dev.2261+d6b3dd25a#0239852a4029d575e59e9d04182426ce74edcaa6",
