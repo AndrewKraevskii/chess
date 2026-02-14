@@ -23,7 +23,8 @@ options: std.AutoArrayHashMapUnmanaged(
     Option,
     struct {
         name: [:0]const u8,
-        type: Option.Type,
+        type: Option.Description,
+        value: Option.Value,
     },
 ),
 arena_state: std.heap.ArenaAllocator.State,
@@ -51,7 +52,20 @@ const Option = enum(u32) {
         std.debug.assert(unnamed_start_index == @intFromEnum(Option.UCI_SetPositionValue) + 1);
     }
 
-    const Type = union(enum) {
+    const Type = enum {
+        check,
+        /// a spin wheel that can be an integer in a certain range
+        spin,
+        /// a combo box that can have different predefined strings as a value
+        combo,
+        /// a button that can be pressed to send a command to the engine
+        button,
+        /// a text field that has a string as a value,
+        /// an empty string has the value "<empty>"
+        string,
+    };
+
+    const Description = union(Type) {
         /// a checkbox that can either be true or false
         check: struct {
             default: bool,
@@ -64,7 +78,7 @@ const Option = enum(u32) {
         },
         /// a combo box that can have different predefined strings as a value
         combo: struct {
-            default: []const u8,
+            default: [:0]const u8,
             @"var": []const []const u8,
         },
         /// a button that can be pressed to send a command to the engine
@@ -75,6 +89,34 @@ const Option = enum(u32) {
             default: [:0]const u8,
         },
     };
+
+    const Value = union(Type) {
+        check: bool,
+        /// a spin wheel that can be an integer in a certain range
+        spin: i64,
+        /// a combo box that can have different predefined strings as a value
+        combo: [:0]const u8,
+        /// a button that can be pressed to send a command to the engine
+        button,
+        /// a text field that has a string as a value,
+        /// an empty string has the value "<empty>"
+        string: [:0]const u8,
+
+        pub fn fromDescription(desc: Description) Value {
+            switch (desc) {
+                inline else => |key, d| {
+                    if (@TypeOf(key) != void) {
+                        return @unionInit(Value, @tagName(d), key.default);
+                    }
+                    return @unionInit(Value, @tagName(d), undefined);
+                },
+            }
+        }
+    };
+
+    fn name(option: Option, uci: *const Uci) [:0]const u8 {
+        return uci.options.get(option).?.name;
+    }
 };
 
 pub fn connect(io: Io, gpa: std.mem.Allocator, reader_buffer: []u8, writer_buffer: []u8, engine_path: []const u8) !@This() {
@@ -120,6 +162,7 @@ pub fn connect(io: Io, gpa: std.mem.Allocator, reader_buffer: []u8, writer_buffe
                     .{
                         .name = option_name,
                         .type = opt.type,
+                        .value = .fromDescription(opt.type),
                     },
                 );
             },
@@ -185,8 +228,8 @@ pub fn getMove(self: *@This()) !Move {
     while (true) {
         const command = try getCommand(&self.reader.interface) orelse return error.EndOfGame;
         if (command == .bestmove) {
-            log.info("from: {s} ", .{command.bestmove.move.from.serialize()});
-            log.info("to {s}\n", .{command.bestmove.move.to.serialize()});
+            log.debug("from: {s} ", .{command.bestmove.move.from.serialize()});
+            log.debug("to {s}\n", .{command.bestmove.move.to.serialize()});
             return command.bestmove.move;
         }
         log.debug("recieved: {t}", .{command});
@@ -215,6 +258,52 @@ pub fn send(self: *@This(), command: Command) Io.Writer.Error!void {
     try sendWriter(&self.writer.interface, command);
 }
 
+// TODO: correctly handle string editing options
+pub fn setOption(
+    self: *@This(),
+    option: Option,
+    value: Option.Value,
+) !void {
+    const w = &self.writer.interface;
+    const name = self.options.get(option).?.name;
+    self.options.getPtr(option).?.value = value;
+    log.info("setting option: {s} {any} {any}", .{ name, value, self.options.get(option).?.type });
+
+    // self.options.
+
+    switch (value) {
+        .check => |check| {
+            try w.print("setoption name {s} value {}\n", .{
+                name,
+                check,
+            });
+        },
+        .spin => |spin| {
+            try w.print("setoption name {s} value {d}\n", .{
+                name,
+                spin,
+            });
+        },
+        .combo => |combo| {
+            try w.print("setoption name {s} value {s}\n", .{
+                name,
+                combo,
+            });
+        },
+        .button => {
+            try w.print("setoption name {s}\n", .{
+                name,
+            });
+        },
+        .string => |string| {
+            try w.print("setoption name {s} value {s}\n", .{
+                name,
+                string,
+            });
+        },
+    }
+}
+
 fn sendWriter(w: *Io.Writer, command: Command) Io.Writer.Error!void {
     switch (command) {
         .uci => try w.writeAll("uci\n"),
@@ -228,9 +317,6 @@ fn sendWriter(w: *Io.Writer, command: Command) Io.Writer.Error!void {
         .set_position => |board| {
             log.debug("set position: {f}", .{board});
             try w.print("position fen {f}\n", .{board});
-        },
-        .set_option => |option| {
-            try w.print("setoption name {s}\n", .{option});
         },
     }
     try w.flush();
@@ -256,7 +342,6 @@ const Command = union(enum) {
     go: GoConfig,
     quit,
     set_position: GameState,
-    set_option: []const u8,
 };
 
 test {
@@ -332,7 +417,7 @@ const ReadInitCommand = union(enum) {
     // TODO: parse it property. For now i don't need to set any options.
     option: struct {
         name: []const u8,
-        type: Option.Type,
+        type: Option.Description,
     },
 };
 
@@ -369,7 +454,7 @@ pub fn getCommand(reader: *Reader) error{
         switch (command) {
             inline .readyok, .copyprotection, .registration => |t| return t,
             .bestmove => {
-                log.info("best move token", .{});
+                log.debug("best move token", .{});
                 const move = tokens.next() orelse continue;
 
                 if (std.mem.eql(u8, move, "(none)")) {
@@ -389,7 +474,7 @@ pub fn getCommand(reader: *Reader) error{
                 };
             },
             .info => {
-                log.info("Recieved info: {s}", .{line});
+                log.debug("Recieved info: {s}", .{line});
                 continue;
             },
         }
@@ -423,7 +508,7 @@ pub fn getInitCommand(reader: *Reader, arena: std.mem.Allocator) error{
         log.debug("token: {s}", .{token_str});
 
         const command = std.meta.stringToEnum(std.meta.Tag(ReadInitCommand), token_str) orelse {
-            log.info("got unknown token: {s}", .{token_str});
+            log.debug("got unknown token: {s}", .{token_str});
             continue;
         };
         switch (command) {
@@ -455,15 +540,14 @@ pub fn getInitCommand(reader: *Reader, arena: std.mem.Allocator) error{
                 };
                 std.debug.assert(std.mem.eql(u8, tokens.next().?, "type"));
 
-                switch (std.meta.stringToEnum(std.meta.Tag(Option.Type), tokens.next() orelse continue) orelse continue) {
+                switch (std.meta.stringToEnum(std.meta.Tag(Option.Description), tokens.next() orelse continue) orelse continue) {
                     inline else => |tag| {
-                        const Result = @FieldType(Option.Type, @tagName(tag));
+                        const Result = @FieldType(Option.Description, @tagName(tag));
                         if (Result == void) return .{ .option = .{ .name = name, .type = tag } };
                         const option = try fillOutOption(Result, &tokens, arena) orelse continue :parse_line;
-                        std.debug.print("{any}", .{option});
                         return .{
                             .option = .{ .name = name, .type = @unionInit(
-                                Option.Type,
+                                Option.Description,
                                 @tagName(tag),
                                 option,
                             ) },

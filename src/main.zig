@@ -15,11 +15,7 @@ const Uci = @import("Uci.zig");
 const log = std.log.scoped(.main);
 
 pub const std_options: std.Options = .{
-    .log_scope_levels = &.{.{
-        .scope = .uci2,
-        .level = .err,
-    }},
-    .log_level = .warn,
+    .log_level = .info,
 };
 
 const PlayMode = enum {
@@ -232,7 +228,7 @@ pub fn doChess(uci: *Uci, queue: *Io.Queue(GameState.MovePromotion), random: std
                 .height = 10,
             }, uci.id.author orelse "");
             var pos: f32 = 20;
-            for (uci.options.keys(), uci.options.values()) |_, value| {
+            for (uci.options.keys(), uci.options.values()) |key, *value| {
                 pos += 10;
                 switch (value.type) {
                     .button => {
@@ -242,17 +238,19 @@ pub fn doChess(uci: *Uci, queue: *Io.Queue(GameState.MovePromotion), random: std
                             .width = 200,
                             .height = 10,
                         }, value.name)) {
-                            try uci.send(.{ .set_option = "A," });
+                            try uci.setOption(key, .button);
                         }
                     },
-                    .check => |check| {
-                        var b = check.default;
-                        _ = gui.checkBox(.{
+                    .check => {
+                        var check = value.value.check;
+                        if (gui.checkBox(.{
                             .x = 0,
                             .y = pos,
                             .width = 10,
                             .height = 10,
-                        }, value.name, &b);
+                        }, value.name, &check)) {
+                            try uci.setOption(key, .{ .check = check });
+                        }
                     },
                     .combo => |combo| {
                         const string = try std.mem.joinZ(frame_arena.allocator(), ";", combo.@"var");
@@ -264,22 +262,26 @@ pub fn doChess(uci: *Uci, queue: *Io.Queue(GameState.MovePromotion), random: std
                             .height = 10,
                         }, string, &b);
                     },
-                    .string => |str| {
+                    .string => {
                         _ = gui.label(.{
                             .x = 0,
                             .y = pos,
                             .width = 100,
                             .height = 10,
-                        }, str.default);
+                        }, value.value.string);
                     },
                     .spin => |spin| {
-                        var a: f32 = @floatFromInt(spin.default);
-                        _ = gui.slider(.{
+                        var spin_value: f32 = @floatFromInt(value.value.spin);
+                        if (gui.slider(.{
                             .x = 0,
                             .y = pos,
                             .width = 100,
                             .height = 10,
-                        }, value.name, "", &a, @floatFromInt(spin.min), @floatFromInt(spin.max));
+                        }, value.name, "", &spin_value, @floatFromInt(spin.min), @floatFromInt(spin.max)) != 0) {
+                            try uci.setOption(key, .{
+                                .spin = @intFromFloat(spin_value),
+                            });
+                        }
                     },
                 }
             }
