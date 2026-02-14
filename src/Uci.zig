@@ -4,7 +4,6 @@ const Io = std.Io;
 const GameState = @import("GameState.zig");
 const Move = GameState.MovePromotion;
 const Reader = Io.Reader;
-const StringArrayHashMap = @import("stringz_array_hashmap_unmanaged.zig").StringArrayHashMapUnmanaged;
 
 const Uci = @This();
 
@@ -20,32 +19,62 @@ id: struct {
     author: ?[:0]const u8 = null,
     name: ?[:0]const u8 = null,
 },
-options: StringArrayHashMap(Option),
+options: std.AutoArrayHashMapUnmanaged(
+    Option,
+    struct {
+        name: [:0]const u8,
+        type: Option.Type,
+    },
+),
 arena_state: std.heap.ArenaAllocator.State,
 
-const Option = union(enum) {
-    /// a checkbox that can either be true or false
-    check: struct {
-        default: bool,
-    },
-    /// a spin wheel that can be an integer in a certain range
-    spin: struct {
-        default: i64,
-        min: i64,
-        max: i64,
-    },
-    /// a combo box that can have different predefined strings as a value
-    combo: struct {
-        default: []const u8,
-        @"var": []const []const u8,
-    },
-    /// a button that can be pressed to send a command to the engine
-    button,
-    /// a text field that has a string as a value,
-    /// an empty string has the value "<empty>"
-    string: struct {
-        default: [:0]const u8,
-    },
+const Option = enum(u32) {
+    Hash,
+    NalimovPath,
+    NalimovCache,
+    Ponder,
+    OwnBook,
+    MultiPV,
+    UCI_ShowCurrLine,
+    UCI_ShowRefutations,
+    UCI_LimitStrength,
+    UCI_Elo,
+    UCI_AnalyseMode,
+    UCI_Opponent,
+    UCI_EngineAbout,
+    UCI_ShredderbasesPath,
+    UCI_SetPositionValue,
+    _,
+
+    const unnamed_start_index = @typeInfo(Option).@"enum".fields.len;
+    comptime {
+        std.debug.assert(unnamed_start_index == @intFromEnum(Option.UCI_SetPositionValue) + 1);
+    }
+
+    const Type = union(enum) {
+        /// a checkbox that can either be true or false
+        check: struct {
+            default: bool,
+        },
+        /// a spin wheel that can be an integer in a certain range
+        spin: struct {
+            default: i64,
+            min: i64,
+            max: i64,
+        },
+        /// a combo box that can have different predefined strings as a value
+        combo: struct {
+            default: []const u8,
+            @"var": []const []const u8,
+        },
+        /// a button that can be pressed to send a command to the engine
+        button,
+        /// a text field that has a string as a value,
+        /// an empty string has the value "<empty>"
+        string: struct {
+            default: [:0]const u8,
+        },
+    };
 };
 
 pub fn connect(io: Io, gpa: std.mem.Allocator, reader_buffer: []u8, writer_buffer: []u8, engine_path: []const u8) !@This() {
@@ -71,16 +100,27 @@ pub fn connect(io: Io, gpa: std.mem.Allocator, reader_buffer: []u8, writer_buffe
     var options: @FieldType(Uci, "options") = .empty;
     errdefer options.deinit(gpa);
 
+    var last_option_index = Option.unnamed_start_index;
     while (try getInitCommand(
         &reader.interface,
         arena,
     )) |command| {
         switch (command) {
             .option => |opt| {
+                const option: Option, const option_name: [:0]const u8 = if (std.meta.stringToEnum(Option, opt.name)) |tag| .{
+                    tag, @tagName(tag),
+                } else blk: {
+                    defer last_option_index += 1;
+                    break :blk .{ @enumFromInt(last_option_index), try arena.dupeZ(u8, opt.name) };
+                };
+
                 try options.put(
                     gpa,
-                    try arena.dupeZ(u8, opt.name),
-                    opt.type,
+                    option,
+                    .{
+                        .name = option_name,
+                        .type = opt.type,
+                    },
                 );
             },
             .uciok => {
@@ -292,7 +332,7 @@ const ReadInitCommand = union(enum) {
     // TODO: parse it property. For now i don't need to set any options.
     option: struct {
         name: []const u8,
-        type: Option,
+        type: Option.Type,
     },
 };
 
@@ -415,15 +455,15 @@ pub fn getInitCommand(reader: *Reader, arena: std.mem.Allocator) error{
                 };
                 std.debug.assert(std.mem.eql(u8, tokens.next().?, "type"));
 
-                switch (std.meta.stringToEnum(std.meta.Tag(Option), tokens.next() orelse continue) orelse continue) {
+                switch (std.meta.stringToEnum(std.meta.Tag(Option.Type), tokens.next() orelse continue) orelse continue) {
                     inline else => |tag| {
-                        const Result = @FieldType(Option, @tagName(tag));
+                        const Result = @FieldType(Option.Type, @tagName(tag));
                         if (Result == void) return .{ .option = .{ .name = name, .type = tag } };
                         const option = try fillOutOption(Result, &tokens, arena) orelse continue :parse_line;
                         std.debug.print("{any}", .{option});
                         return .{
                             .option = .{ .name = name, .type = @unionInit(
-                                Option,
+                                Option.Type,
                                 @tagName(tag),
                                 option,
                             ) },

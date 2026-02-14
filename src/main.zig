@@ -232,16 +232,16 @@ pub fn doChess(uci: *Uci, queue: *Io.Queue(GameState.MovePromotion), random: std
                 .height = 10,
             }, uci.id.author orelse "");
             var pos: f32 = 20;
-            for (uci.options.keys(), uci.options.values()) |key, value| {
+            for (uci.options.keys(), uci.options.values()) |_, value| {
                 pos += 10;
-                switch (value) {
+                switch (value.type) {
                     .button => {
                         if (gui.button(.{
                             .x = 0,
                             .y = pos,
                             .width = 200,
                             .height = 10,
-                        }, key)) {
+                        }, value.name)) {
                             try uci.send(.{ .set_option = "A," });
                         }
                     },
@@ -252,7 +252,7 @@ pub fn doChess(uci: *Uci, queue: *Io.Queue(GameState.MovePromotion), random: std
                             .y = pos,
                             .width = 10,
                             .height = 10,
-                        }, key, &b);
+                        }, value.name, &b);
                     },
                     .combo => |combo| {
                         const string = try std.mem.joinZ(frame_arena.allocator(), ";", combo.@"var");
@@ -279,7 +279,7 @@ pub fn doChess(uci: *Uci, queue: *Io.Queue(GameState.MovePromotion), random: std
                             .y = pos,
                             .width = 100,
                             .height = 10,
-                        }, key, "", &a, @floatFromInt(spin.min), @floatFromInt(spin.max));
+                        }, value.name, "", &a, @floatFromInt(spin.min), @floatFromInt(spin.max));
                     },
                 }
             }
