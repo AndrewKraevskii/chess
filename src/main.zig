@@ -19,6 +19,7 @@ pub const std_options: std.Options = .{
         .scope = .uci2,
         .level = .err,
     }},
+    .log_level = .warn,
 };
 
 const PlayMode = enum {
@@ -59,7 +60,11 @@ pub fn doChess(uci: *Uci, queue: *Io.Queue(GameState.MovePromotion), random: std
 
     var selection: ?GameState.Position = null;
 
+    var frame_arena: std.heap.ArenaAllocator = .init(gpa);
+
     while (!rl.windowShouldClose()) {
+        _ = frame_arena.reset(.retain_capacity);
+
         var turn_style: DisplayStyle = style;
         const board = chess.activeBoard().?;
         const turn = board.turn;
@@ -249,6 +254,16 @@ pub fn doChess(uci: *Uci, queue: *Io.Queue(GameState.MovePromotion), random: std
                             .height = 10,
                         }, key, &b);
                     },
+                    .combo => |combo| {
+                        const string = try std.mem.joinZ(frame_arena.allocator(), ";", combo.@"var");
+                        var b: bool = false;
+                        _ = gui.checkBox(.{
+                            .x = 0,
+                            .y = pos,
+                            .width = 10,
+                            .height = 10,
+                        }, string, &b);
+                    },
                     else => {},
                 }
             }
@@ -348,7 +363,7 @@ pub fn main(init: std.process.Init) !void {
         defer {
             std.process.cleanExit(io);
             log.info("Exiting game loop", .{});
-            uci.quit() catch |e| {
+            uci.quit(arena) catch |e| {
                 log.err("can't deinit engine: {s}", .{@errorName(e)});
             };
         }
@@ -398,7 +413,6 @@ pub fn main(init: std.process.Init) !void {
 
 test {
     _ = @import("Uci.zig");
-    _ = @import("uci2.zig");
     _ = @import("GameState.zig");
     _ = @import("Chess.zig");
 }

@@ -3,7 +3,6 @@ const Io = std.Io;
 
 const GameState = @import("GameState.zig");
 const Move = GameState.MovePromotion;
-const uci2 = @import("uci2.zig");
 const Reader = Io.Reader;
 const StringArrayHashMap = @import("stringz_array_hashmap_unmanaged.zig").StringArrayHashMapUnmanaged;
 
@@ -31,14 +30,14 @@ const Option = union(enum) {
     },
     /// a spin wheel that can be an integer in a certain range
     spin: struct {
-        default: bool,
+        default: i64,
         min: i64,
         max: i64,
     },
     /// a combo box that can have different predefined strings as a value
     combo: struct {
         default: []const u8,
-        options: []const u8,
+        @"var": []const []const u8,
     },
     /// a button that can be pressed to send a command to the engine
     button,
@@ -72,7 +71,10 @@ pub fn connect(io: Io, gpa: std.mem.Allocator, reader_buffer: []u8, writer_buffe
     var options: @FieldType(Uci, "options") = .empty;
     errdefer options.deinit(gpa);
 
-    while (try getCommand(&reader.interface)) |command| {
+    while (try getInitCommand(
+        &reader.interface,
+        arena,
+    )) |command| {
         switch (command) {
             .option => |opt| {
                 try options.put(
@@ -93,9 +95,6 @@ pub fn connect(io: Io, gpa: std.mem.Allocator, reader_buffer: []u8, writer_buffe
                         name = try arena.dupeZ(u8, n);
                     },
                 }
-            },
-            else => |c| {
-                log.err("Expected option or uciok command got {t}", .{c});
             },
         }
     }
@@ -158,7 +157,9 @@ pub fn setPosition(self: *@This(), board: GameState) !void {
     try sendWriter(&self.writer.interface, .{ .set_position = board });
 }
 
-pub fn quit(self: *@This()) !void {
+pub fn quit(self: *@This(), gpa: std.mem.Allocator) !void {
+    self.arena_state.promote(gpa).deinit();
+
     try sendWriter(&self.writer.interface, .quit);
     _ = try self.engine_process.wait(self.io);
 
@@ -166,7 +167,7 @@ pub fn quit(self: *@This()) !void {
     log.info("quit engine", .{});
 }
 
-pub fn go(self: *@This(), config: uci2.GoConfig) Io.Writer.Error!void {
+pub fn go(self: *@This(), config: GoConfig) Io.Writer.Error!void {
     try sendWriter(&self.writer.interface, .{ .go = config });
 }
 
@@ -195,9 +196,24 @@ fn sendWriter(w: *Io.Writer, command: Command) Io.Writer.Error!void {
     try w.flush();
 }
 
+pub const GoConfig = struct {
+    // searchmoves: []const Move = &.{},
+    // ponde: void = {},
+    // wtime: void = {},
+    // btime: void = {},
+    // winc: void = {},
+    // binc: void = {},
+    // movestogo: void = {},
+    depth: u8,
+    // nodes: void = {},
+    // mate: void = {},
+    // movetime: void = {},
+    // infinit: void = {},
+};
+
 const Command = union(enum) {
     uci,
-    go: uci2.GoConfig,
+    go: GoConfig,
     quit,
     set_position: GameState,
     set_option: []const u8,
@@ -227,12 +243,8 @@ test {
         board = board.applyMove(move);
     }
 }
+
 const ReadCommand = union(enum) {
-    id: union(enum) {
-        name: []const u8,
-        author: []const u8,
-    },
-    uciok,
     readyok,
     bestmove: struct {
         move: Move,
@@ -269,6 +281,14 @@ const ReadCommand = union(enum) {
         refutation: []const []const u8,
         currline: []const []const u8,
     },
+};
+
+const ReadInitCommand = union(enum) {
+    id: union(enum) {
+        name: []const u8,
+        author: []const u8,
+    },
+    uciok,
     // TODO: parse it property. For now i don't need to set any options.
     option: struct {
         name: []const u8,
@@ -277,10 +297,14 @@ const ReadCommand = union(enum) {
 };
 
 /// It expects inputs lines to be no bigger than Reader's buffer.
-pub fn getCommand(reader: *Reader) error{ ReadFailed, StreamTooLong }!?ReadCommand {
+pub fn getCommand(reader: *Reader) error{
+    ReadFailed,
+    StreamTooLong,
+    OutOfMemory,
+}!?ReadCommand {
     const r = reader;
 
-    parse_line: while (true) {
+    while (true) {
         log.debug("get loop start", .{});
         // skip all whitespace chars
         readerSkipNone(r, &std.ascii.whitespace) catch |e| switch (e) {
@@ -303,18 +327,7 @@ pub fn getCommand(reader: *Reader) error{ ReadFailed, StreamTooLong }!?ReadComma
             continue;
         };
         switch (command) {
-            inline .uciok, .readyok, .copyprotection, .registration => |t| return t,
-            .id => {
-                const type_str = tokens.next() orelse continue;
-
-                return switch (std.meta.stringToEnum(std.meta.Tag(@FieldType(ReadCommand, "id")), type_str) orelse continue) {
-                    inline else => |type_enum| blk: {
-                        const value = @constCast(tokens.rest());
-
-                        break :blk .{ .id = @unionInit(@FieldType(ReadCommand, "id"), @tagName(type_enum), value) };
-                    },
-                };
-            },
+            inline .readyok, .copyprotection, .registration => |t| return t,
             .bestmove => {
                 log.info("best move token", .{});
                 const move = tokens.next() orelse continue;
@@ -339,6 +352,54 @@ pub fn getCommand(reader: *Reader) error{ ReadFailed, StreamTooLong }!?ReadComma
                 log.info("Recieved info: {s}", .{line});
                 continue;
             },
+        }
+        comptime unreachable;
+    }
+}
+
+pub fn getInitCommand(reader: *Reader, arena: std.mem.Allocator) error{
+    ReadFailed,
+    StreamTooLong,
+    OutOfMemory,
+}!?ReadInitCommand {
+    const r = reader;
+
+    parse_line: while (true) {
+        log.debug("get loop start", .{});
+        // skip all whitespace chars
+        readerSkipNone(r, &std.ascii.whitespace) catch |e| switch (e) {
+            error.EndOfStream => return null,
+            error.ReadFailed => return error.ReadFailed,
+        };
+        log.debug("skiped whitespace", .{});
+        // possible \r will be handled in future `next` call by `readerSkipNone`
+        const line = (try r.takeDelimiter('\n')) orelse return null;
+        log.debug("took untill delimiter", .{});
+        var tokens = std.mem.tokenizeAny(u8, line, "\t ");
+        log.debug("recieved string: {s}", .{line});
+        // we skipped all whitespace so its impossible to get nothing
+        const token_str = tokens.next() orelse unreachable;
+
+        log.debug("token: {s}", .{token_str});
+
+        const command = std.meta.stringToEnum(std.meta.Tag(ReadInitCommand), token_str) orelse {
+            log.info("got unknown token: {s}", .{token_str});
+            continue;
+        };
+        switch (command) {
+            inline .uciok,
+            => |t| return t,
+            .id => {
+                const type_str = tokens.next() orelse continue;
+
+                return switch (std.meta.stringToEnum(std.meta.Tag(@FieldType(ReadInitCommand, "id")), type_str) orelse continue) {
+                    inline else => |type_enum| blk: {
+                        const value = @constCast(tokens.rest());
+
+                        break :blk .{ .id = @unionInit(@FieldType(ReadInitCommand, "id"), @tagName(type_enum), value) };
+                    },
+                };
+            },
             .option => {
                 // apparently names can have spaces in them.
                 const name_keyword = tokens.next() orelse continue;
@@ -355,56 +416,23 @@ pub fn getCommand(reader: *Reader) error{ ReadFailed, StreamTooLong }!?ReadComma
                 std.debug.assert(std.mem.eql(u8, tokens.next().?, "type"));
 
                 switch (std.meta.stringToEnum(std.meta.Tag(Option), tokens.next() orelse continue) orelse continue) {
-                    .button => {
+                    inline else => |tag| {
+                        const Result = @FieldType(Option, @tagName(tag));
+                        if (Result == void) return .{ .option = .{ .name = name, .type = tag } };
+                        const option = try fillOutOption(Result, &tokens, arena) orelse continue :parse_line;
+                        std.debug.print("{any}", .{option});
                         return .{
-                            .option = .{
-                                .name = name,
-                                .type = .button,
-                            },
+                            .option = .{ .name = name, .type = @unionInit(
+                                Option,
+                                @tagName(tag),
+                                option,
+                            ) },
                         };
                     },
-                    .check => {
-                        const res = blk: {
-                            const default_keyword = tokens.next() orelse continue;
-                            if (!std.mem.eql(u8, default_keyword, "default")) continue;
-
-                            const token = tokens.next() orelse continue;
-                            if (std.mem.eql(u8, token, "false")) break :blk false;
-                            if (std.mem.eql(u8, token, "true")) break :blk true;
-
-                            continue;
-                        };
-                        return .{
-                            .option = .{
-                                .name = name,
-                                .type = .{ .check = .{ .default = res } },
-                            },
-                        };
-                    },
-                    else => continue,
                 }
             },
         }
         comptime unreachable;
-    }
-}
-
-test {
-    var reader: Reader = .fixed(
-        \\id name Test
-        \\id author andrew
-        \\hellow
-        \\option
-    );
-    var i: usize = 0;
-    var expected: []const std.meta.Tag(ReadCommand) = &.{
-        .id,
-        .id,
-        .option,
-    };
-    while (try getCommand(&reader)) |token| {
-        try std.testing.expectEqual(expected[i], @as(std.meta.Tag(ReadCommand), (token)));
-        i += 1;
     }
 }
 
@@ -439,4 +467,89 @@ test readerSkipNone {
     // handling when nothing except for values left.
     try std.testing.expectEqualSlices(u8, "\n", reader.buffered());
     try std.testing.expectError(error.EndOfStream, readerSkipNone(&reader, &std.ascii.whitespace));
+}
+
+fn Optionals(comptime T: type) type {
+    const fields = @typeInfo(T).@"struct".fields;
+
+    var field_names: [fields.len][]const u8 = undefined;
+    var types: [fields.len]type = undefined;
+    var attributes: [fields.len]@import("std").builtin.Type.StructField.Attributes = undefined;
+    for (fields, 0..) |field, index| {
+        field_names[index] = field.name;
+        types[index] = ?field.type;
+        attributes[index] = .{
+            .default_value_ptr = &@as(?field.type, null),
+        };
+    }
+    return @Struct(.auto, null, &field_names, &types, &attributes);
+}
+
+fn Unoptionals(comptime T: type) type {
+    const fields = @typeInfo(T).@"struct".fields;
+    var field_names: [fields.len][]const u8 = undefined;
+    var types: [fields.len]type = undefined;
+    var attributes: [fields.len]@import("std").builtin.Type.StructField.Attributes = undefined;
+
+    for (fields, 0..) |field, index| {
+        field_names[index] = field.name;
+        types[index] = @typeInfo(field.type).optional.child;
+        attributes[index] = .{};
+    }
+    return @Struct(.auto, null, &field_names, &types, &attributes);
+}
+
+fn unoptionals(comptime Target: type, value: Optionals(Target)) ?Target {
+    var un: Target = undefined;
+    inline for (@typeInfo(Target).@"struct".fields) |field| {
+        @field(un, field.name) = @field(value, field.name) orelse return null;
+    }
+    return un;
+}
+
+fn fillOutOption(comptime T: type, tokens: *std.mem.TokenIterator(u8, .any), arena: std.mem.Allocator) error{OutOfMemory}!?T {
+    var opt_list: std.ArrayList([]const u8) = .empty;
+
+    var option: Optionals(T) = .{};
+    _ = &option;
+    var maybe_current_field: ?std.meta.FieldEnum(T) = null;
+    while (tokens.next()) |token| {
+        const maybe_field_tag: ?std.meta.FieldEnum(T) = std.meta.stringToEnum(std.meta.FieldEnum(T), token);
+
+        if (maybe_field_tag) |field_tag| {
+            maybe_current_field = field_tag;
+            continue;
+        }
+        const current_field: std.meta.FieldEnum(T) = maybe_current_field orelse return null;
+
+        switch (current_field) {
+            inline else => |field_tag| {
+                const field = &@field(option, @tagName(field_tag));
+
+                switch (@TypeOf(field.*.?)) {
+                    bool => {
+                        field.* = if (std.ascii.endsWithIgnoreCase(token, "true"))
+                            true
+                        else if (std.ascii.endsWithIgnoreCase(token, "false"))
+                            false
+                        else
+                            return null;
+                    },
+                    i64 => {
+                        field.* = std.fmt.parseInt(i64, token, 10) catch return null;
+                    },
+                    []const u8 => {
+                        field.* = try arena.dupe(u8, token);
+                    },
+                    []const []const u8 => {
+                        try opt_list.append(arena, try arena.dupe(u8, token));
+                        field.* = opt_list.items;
+                    },
+                    else => |t| @compileError(@typeName(t)),
+                }
+            },
+        }
+    }
+
+    return unoptionals(T, option);
 }
