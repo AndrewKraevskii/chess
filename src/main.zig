@@ -264,7 +264,23 @@ pub fn doChess(uci: *Uci, queue: *Io.Queue(GameState.MovePromotion), random: std
                             .height = 10,
                         }, string, &b);
                     },
-                    else => {},
+                    .string => |str| {
+                        _ = gui.label(.{
+                            .x = 0,
+                            .y = pos,
+                            .width = 100,
+                            .height = 10,
+                        }, str.default);
+                    },
+                    .spin => |spin| {
+                        var a: f32 = @floatFromInt(spin.default);
+                        _ = gui.slider(.{
+                            .x = 0,
+                            .y = pos,
+                            .width = 100,
+                            .height = 10,
+                        }, key, "", &a, @floatFromInt(spin.min), @floatFromInt(spin.max));
+                    },
                 }
             }
         }

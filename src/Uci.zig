@@ -44,7 +44,7 @@ const Option = union(enum) {
     /// a text field that has a string as a value,
     /// an empty string has the value "<empty>"
     string: struct {
-        default: []const u8,
+        default: [:0]const u8,
     },
 };
 
@@ -511,7 +511,6 @@ fn fillOutOption(comptime T: type, tokens: *std.mem.TokenIterator(u8, .any), are
     var opt_list: std.ArrayList([]const u8) = .empty;
 
     var option: Optionals(T) = .{};
-    _ = &option;
     var maybe_current_field: ?std.meta.FieldEnum(T) = null;
     while (tokens.next()) |token| {
         const maybe_field_tag: ?std.meta.FieldEnum(T) = std.meta.stringToEnum(std.meta.FieldEnum(T), token);
@@ -540,6 +539,9 @@ fn fillOutOption(comptime T: type, tokens: *std.mem.TokenIterator(u8, .any), are
                     },
                     []const u8 => {
                         field.* = try arena.dupe(u8, token);
+                    },
+                    [:0]const u8 => {
+                        field.* = try arena.dupeZ(u8, token);
                     },
                     []const []const u8 => {
                         try opt_list.append(arena, try arena.dupe(u8, token));
