@@ -4,13 +4,12 @@ const Io = std.Io;
 const gui = @import("raygui");
 const rl = @import("raylib");
 
-const fen = @import("fen.zig");
-const GameState = @import("GameState.zig");
-const Chess = @import("Chess.zig");
+const Chess = @import("Chess");
+const GameState = Chess.Board;
 const renderer = @import("renderer.zig");
 const DisplayStyle = renderer.DisplayStyle;
 const rlx = @import("raylibx.zig");
-const Uci = @import("Uci.zig");
+const Uci = @import("Uci");
 
 const log = std.log.scoped(.main);
 
@@ -427,10 +426,4 @@ pub fn main(init: std.process.Init) !void {
         }
         try io.sleep(.fromSeconds(1), .awake);
     }
-}
-
-test {
-    _ = @import("Uci.zig");
-    _ = @import("GameState.zig");
-    _ = @import("Chess.zig");
 }

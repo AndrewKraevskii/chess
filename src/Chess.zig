@@ -5,7 +5,7 @@
 
 const std = @import("std");
 
-const Board = @import("GameState.zig");
+pub const Board = @import("Chess/Board.zig");
 const Chess = @This();
 
 const Position = struct {

@@ -8,18 +8,32 @@ pub fn build(b: *std.Build) void {
     const use_llvm = b.option(bool, "use-llvm", "use llvm default true") orelse false;
     const single_threaded = b.option(bool, "single-threaded", "") orelse false;
 
-    const module = b.createModule(.{
+    const chess = b.addModule("Chess", .{
+        .root_source_file = b.path("src/Chess.zig"),
+    });
+    const uci = b.addModule("Uci", .{
+        .root_source_file = b.path("src/Uci.zig"),
+        .imports = &.{
+            .{ .name = "Chess", .module = chess },
+        },
+    });
+
+    const mod_exe = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
         .single_threaded = single_threaded,
+        .imports = &.{
+            .{ .name = "Chess", .module = chess },
+            .{ .name = "Uci", .module = uci },
+        },
     });
-    module.addAnonymousImport("chess_figures", .{
+    mod_exe.addAnonymousImport("chess_figures", .{
         .root_source_file = b.path("assets/chess_figures.png"),
     });
     const exe = b.addExecutable(.{
         .name = "chessfrontend",
-        .root_module = module,
+        .root_module = mod_exe,
         .use_llvm = use_llvm,
         .use_lld = use_llvm,
     });
@@ -39,9 +53,9 @@ pub fn build(b: *std.Build) void {
         const raylib = raylib_dep.module("raylib"); // main raylib module
         const raygui = raylib_dep.module("raygui"); // raygui module
         const raylib_artifact = raylib_dep.artifact("raylib"); // raylib C library
-        module.linkLibrary(raylib_artifact);
-        module.addImport("raylib", raylib);
-        module.addImport("raygui", raygui);
+        mod_exe.linkLibrary(raylib_artifact);
+        mod_exe.addImport("raylib", raylib);
+        mod_exe.addImport("raygui", raygui);
     }
     b.installArtifact(exe);
 
@@ -60,7 +74,7 @@ pub fn build(b: *std.Build) void {
 
     const exe_unit_tests = b.addTest(.{
         .filters = test_filters,
-        .root_module = module,
+        .root_module = mod_exe,
     });
 
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);

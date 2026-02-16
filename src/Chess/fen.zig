@@ -2,7 +2,7 @@ const std = @import("std");
 const Writer = std.Io.Writer;
 const assert = std.debug.assert;
 
-const GameState = @import("GameState.zig");
+const GameState = @import("Board.zig");
 
 const log = std.log.scoped(.fen);
 

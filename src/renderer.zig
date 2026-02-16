@@ -2,9 +2,8 @@ const std = @import("std");
 
 const rl = @import("raylib");
 const rlx = @import("raylibx.zig");
-const log = std.log.scoped(.renderer);
 
-const GameState = @import("GameState.zig");
+const GameState = @import("Chess").Board;
 
 fn pieceIndexInAtlas(piece: GameState.Piece.Type) f32 {
     return switch (piece) {

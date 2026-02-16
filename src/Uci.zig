@@ -1,7 +1,7 @@
 const std = @import("std");
 const Io = std.Io;
 
-const GameState = @import("GameState.zig");
+const GameState = @import("Chess").Board;
 const Move = GameState.MovePromotion;
 const Reader = Io.Reader;
 
