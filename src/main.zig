@@ -375,15 +375,15 @@ pub fn main(init: std.process.Init) !void {
     var uci_read_buffer: [0x1000]u8 = undefined;
     var uci_write_buffer: [0x1000]u8 = undefined;
 
+    var uci = try Uci.connect(io, arena, &uci_read_buffer, &uci_write_buffer, engine_path);
+    defer {
+        std.process.cleanExit(io);
+        log.info("Exiting game loop", .{});
+        uci.quit(arena) catch |e| {
+            log.err("can't deinit engine: {s}", .{@errorName(e)});
+        };
+    }
     while (!rl.windowShouldClose()) {
-        var uci = try Uci.connect(io, arena, &uci_read_buffer, &uci_write_buffer, engine_path);
-        defer {
-            std.process.cleanExit(io);
-            log.info("Exiting game loop", .{});
-            uci.quit(arena) catch |e| {
-                log.err("can't deinit engine: {s}", .{@errorName(e)});
-            };
-        }
         var buffer: [1]GameState.MovePromotion = undefined;
 
         var engine_async_move: Io.Queue(GameState.MovePromotion) = .init(&buffer);

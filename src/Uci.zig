@@ -306,7 +306,7 @@ pub fn setOption(
 
 fn sendWriter(w: *Io.Writer, command: Command) Io.Writer.Error!void {
     switch (command) {
-        .uci => try w.writeAll("uci\n"),
+        inline .uci, .ucinewgame => |_, k| try w.print("{t}\n", .{k}),
         .go => |config| {
             std.log.debug("go", .{});
             try w.print("go depth {d}\n", .{config.depth});
@@ -338,6 +338,7 @@ pub const GoConfig = struct {
 };
 
 const Command = union(enum) {
+    ucinewgame,
     uci,
     go: GoConfig,
     quit,
