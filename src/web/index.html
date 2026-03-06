@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>Chess</title>
+		<script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.8/bundles/datastar.js"></script>
+		<link href="./reset.css" rel="stylesheet">
+		<style>
+
+			#board {
+				--cell-width: 10px;
+				--grid-size: calc(8 * var(--cell-width));
+				--white-color-cell: white;
+				--black-color-cell: gray;
+				
+				display: grid;
+				grid-template-columns: 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr;
+				grid-template-rows: 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr;
+				width: var(--grid-size);
+				height: var(--grid-size);
+				.cell {
+					background-color: var(--white-color-cell);
+					width: var(--cell-width);
+					height: var(--cell-width);
+					border-color: black;
+					&.odd {
+						background-color: var(--black-color-cell);
+					}
+				}
+			}
+			
+			main {
+				display: flex;
+				padding-top: 1rm;
+				flex-direction: column;
+				align-items: center;
+			}
+		</style>
+	</head>
+	<body lang="en">
+		<header>
+		</header>
+		<main>
+			<div id="board" data-init="@get('/board')">
+			</div>
+		</main>
+		<span id="fen"></span>
+		<input data-bind:fen type="text">
+		<button type="button" data-on:click="@get('/setboard')">Set fen</button>
+	</body>
+</html>
