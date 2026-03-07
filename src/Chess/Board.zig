@@ -354,9 +354,13 @@ fn rookMoves(pos: Position) [4]Position {
     };
 }
 
-pub fn isPromotion(state: *const GameState, move: Move) bool {
-    const piece = state.getConst(move.from).?;
+pub fn isPromotionFallible(state: *const GameState, move: Move) !bool {
+    const piece = state.getConst(move.from) orelse return error.Wrong;
     return piece.type == .pawn and move.to.row == pawns_promotion_raw.get(piece.side);
+}
+
+pub fn isPromotion(state: *const GameState, move: Move) bool {
+    return isPromotionFallible(state, move) catch unreachable;
 }
 
 pub fn movesRaw(state: *const GameState, buffer: *[GameState.max_moves_from_position]Move) []Move {

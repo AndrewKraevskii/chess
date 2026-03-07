@@ -45,7 +45,7 @@ pub fn main(init: std.process.Init) !void {
         .chess = .init,
         .mutex = .init,
         .condition = .init,
-        .update_interval = null,
+        .update_interval = .fromSeconds(1),
     };
     try state.chess.setPosition(init.gpa, .init);
     var group: std.Io.Group = .init;
@@ -98,6 +98,7 @@ fn handleInfalible(io: Io, gpa: std.mem.Allocator, stream: std.Io.net.Stream, se
             if (writer.err) |err| {
                 if (err == error.SocketUnconnected) {
                     std.log.err("Client disconnected: {t}", .{err});
+                    std.debug.dumpStackTrace(@errorReturnTrace().?);
                 }
             }
         },
@@ -159,14 +160,13 @@ pub fn makeMove(req: *std.http.Server.Request, options: Options) !void {
         if (options.query.from == null or options.query.to == null) break :apply_move;
 
         const move: Chess.Board.Move = try .parse(&(options.query.from.?[0..2].* ++ options.query.to.?[0..2].*));
-        const promotion: ?Chess.Board.Piece.Type = if (board.isPromotion(move)) .queen else null;
+        const promotion: ?Chess.Board.Piece.Type = if (try board.isPromotionFallible(move)) .queen else null;
 
         const new_board = board.applyMoveFallible(.{ .from = move.from, .to = move.to, .promotion = promotion }) catch break :apply_move;
         try options.game.chess.setNext(
             options.gpa,
             new_board,
         );
-        options.game.condition.broadcast(options.io);
     }
     try getBoard(req, options);
 }
@@ -324,6 +324,7 @@ pub fn getBoard(req: *std.http.Server.Request, options: Options) !void {
         try options.game.mutex.lock(options.io);
         defer options.game.mutex.unlock(options.io);
         try options.game.condition.wait(options.io, &options.game.mutex);
+        std.log.info("woke up to draw board", .{});
 
         b = options.game.chess.activeBoard() orelse .init;
     }
