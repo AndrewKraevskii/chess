@@ -17,6 +17,7 @@ const Args = struct {
         .address = std.Io.net.IpAddress.parse("0.0.0.0", 8080) catch unreachable,
     };
 };
+
 pub fn parseArgs(process_args: std.process.Args, arena: std.mem.Allocator) !Args {
     const slice = try process_args.toSlice(arena);
 
@@ -44,6 +45,7 @@ pub fn main(init: std.process.Init) !void {
         .chess = .init,
         .mutex = .init,
         .condition = .init,
+        .update_interval = null,
     };
     try state.chess.setPosition(init.gpa, .init);
     var group: std.Io.Group = .init;
@@ -60,26 +62,28 @@ pub fn main(init: std.process.Init) !void {
 fn updateBoard(gpa: std.mem.Allocator, state: *State) !void {
     var random: std.Random.DefaultPrng = .init(0);
     while (true) {
-        {
+        const sleep_time = sleep_time: {
             try state.mutex.lock(state.io);
             defer state.mutex.unlock(state.io);
 
             var b: Chess.Board = state.chess.activeBoard() orelse .init;
             var moves_buffer: [Chess.Board.max_moves_from_position]Chess.Board.Move = undefined;
-            const moves = blk: {
+            const moves = moves: {
                 const moves = b.validMoves(&moves_buffer);
                 if (moves.len == 0) state.chess.setPosition(gpa, .init) catch @panic("OOM");
                 b = state.chess.activeBoard().?;
                 const new_moves = b.validMoves(&moves_buffer);
-                break :blk new_moves;
+                break :moves new_moves;
             };
             const move = moves[random.random().uintLessThan(usize, moves.len)];
             const promotion: ?Chess.Board.Piece.Type = if (b.isPromotion(move)) .queen else null;
             const next_board = b.applyMove(.{ .from = move.from, .to = move.to, .promotion = promotion });
             state.chess.setNext(gpa, next_board) catch @panic("OOM");
-        }
+            break :sleep_time state.update_interval;
+        };
         state.condition.broadcast(state.io);
-        try state.io.sleep(.fromMilliseconds(20), .awake);
+        if (sleep_time == null) return;
+        try state.io.sleep(sleep_time.?, .awake);
     }
 }
 
@@ -91,8 +95,11 @@ fn handleInfalible(io: Io, gpa: std.mem.Allocator, stream: std.Io.net.Stream, se
     var reader = stream.reader(io, &reader_buffer);
     handle(io, gpa, server, &writer.interface, &reader.interface) catch |e| switch (e) {
         else => {
-            std.log.err("handle failed: {t}", .{e});
-            std.debug.dumpStackTrace(@errorReturnTrace().?);
+            if (writer.err) |err| {
+                if (err == error.SocketUnconnected) {
+                    std.log.err("Client disconnected: {t}", .{err});
+                }
+            }
         },
     };
 }
@@ -116,17 +123,22 @@ fn parseTarget(slice: []const u8) struct {
 }
 const State = struct {
     io: Io,
-    chess: Chess,
+    // protects chess and update_interval
     mutex: std.Io.Mutex,
+    chess: Chess,
     condition: std.Io.Condition,
+    // null meants game is paused.
+    update_interval: ?std.Io.Duration,
 };
 
 const Self = @This();
 
 const Endpoints = struct {
     pub const @"/" = index;
-    pub const @"/board" = board;
+    pub const @"/board" = getBoard;
     pub const @"/setboard" = setboard;
+    pub const @"/move" = makeMove;
+
     pub const @"/reset.css" = reset_css;
 
     pub fn not_found(req: *std.http.Server.Request, options: Options) !void {
@@ -138,7 +150,28 @@ const Endpoints = struct {
     }
 };
 
-const SSE = struct {
+pub fn makeMove(req: *std.http.Server.Request, options: Options) !void {
+    apply_move: {
+        try options.game.mutex.lock(options.io);
+        defer options.game.mutex.unlock(options.io);
+
+        const board = options.game.chess.activeBoard() orelse break :apply_move;
+        if (options.query.from == null or options.query.to == null) break :apply_move;
+
+        const move: Chess.Board.Move = try .parse(&(options.query.from.?[0..2].* ++ options.query.to.?[0..2].*));
+        const promotion: ?Chess.Board.Piece.Type = if (board.isPromotion(move)) .queen else null;
+
+        const new_board = board.applyMoveFallible(.{ .from = move.from, .to = move.to, .promotion = promotion }) catch break :apply_move;
+        try options.game.chess.setNext(
+            options.gpa,
+            new_board,
+        );
+        options.game.condition.broadcast(options.io);
+    }
+    try getBoard(req, options);
+}
+
+const Sse = struct {
     body_writer: std.http.BodyWriter,
     writer: std.Io.Writer,
     state: enum {
@@ -159,7 +192,7 @@ const SSE = struct {
         }
     };
 
-    pub fn start(req: *std.http.Server.Request, buffer: []u8, sse_buffer: []u8) !SSE {
+    pub fn start(req: *std.http.Server.Request, buffer: []u8, sse_buffer: []u8) !Sse {
         const streaming = try req.respondStreaming(buffer, .{
             .respond_options = .{
                 .extra_headers = &.{
@@ -182,62 +215,50 @@ const SSE = struct {
         };
     }
 
-    fn beginEvent(sse: *SSE, event_type: Type) !void {
+    fn beginEvent(sse: *Sse, event_type: Type) !void {
         std.debug.assert(sse.state == .nothing);
         try sse.body_writer.writer.print(
-            "event: {s}\n",
+            "event: {s}",
             .{event_type.cebab()},
         );
         sse.state = .started_event;
     }
+    const start_of_element_patch = "\ndata: elements ";
+
+    // TODO: name it something else
+    fn putSseFormatedString(writer: *std.Io.Writer, text: []const u8) !usize {
+        var lines = std.mem.splitScalar(u8, text, '\n');
+        var count: usize = 0;
+        while (lines.next()) |line| {
+            try writer.writeAll(line);
+            count += line.len;
+            if (lines.peek() != null) {
+                try writer.writeAll(start_of_element_patch);
+                count += start_of_element_patch.len;
+            }
+        }
+        return count;
+    }
 
     fn drain(w: *Io.Writer, data: []const []const u8, splat: usize) error{WriteFailed}!usize {
-        const sse: *SSE = @fieldParentPtr("writer", w);
-        const start_of_element_patch = "data: elements ";
+        const sse: *Sse = @fieldParentPtr("writer", w);
         if (sse.state == .started_event) {
             try sse.body_writer.writer.writeAll(start_of_element_patch);
             sse.state = .writing_event;
         }
         var count: usize = 0;
-        {
-            var lines = std.mem.splitScalar(u8, w.buffered(), '\n');
-            while (lines.next()) |line| {
-                try sse.body_writer.writer.writeAll(line);
-                count += line.len;
-                if (lines.peek() != null) {
-                    try sse.body_writer.writer.writeAll(start_of_element_patch);
-                    count += start_of_element_patch.len;
-                }
-            }
-            w.end = 0;
-        }
+        count += try putSseFormatedString(&sse.body_writer.writer, w.buffered());
+        w.end = 0;
         for (data[0 .. data.len - 1]) |datum| {
-            var lines = std.mem.splitScalar(u8, datum, '\n');
-            while (lines.next()) |line| {
-                try sse.body_writer.writer.writeAll(line);
-                count += line.len;
-                if (lines.peek() != null) {
-                    try sse.body_writer.writer.writeAll(start_of_element_patch);
-                    count += start_of_element_patch.len;
-                }
-            }
+            count += try putSseFormatedString(&sse.body_writer.writer, datum);
         }
-
         for (0..splat) |_| {
-            var lines = std.mem.splitScalar(u8, data[data.len - 1], '\n');
-            while (lines.next()) |line| {
-                try sse.body_writer.writer.writeAll(line);
-                count += line.len;
-                if (lines.peek() != null) {
-                    try sse.body_writer.writer.writeAll(start_of_element_patch);
-                    count += start_of_element_patch.len;
-                }
-            }
+            count += try putSseFormatedString(&sse.body_writer.writer, data[data.len - 1]);
         }
 
         return count;
     }
-    pub fn endEvent(s: *SSE) !void {
+    pub fn endEvent(s: *Sse) !void {
         std.debug.assert(s.state != .nothing);
         try s.writer.flush();
         try s.body_writer.writer.writeAll("\n\n");
@@ -246,16 +267,16 @@ const SSE = struct {
         s.state = .nothing;
     }
 
-    pub fn end(s: *SSE) !void {
+    pub fn end(s: *Sse) !void {
         std.debug.assert(s.state == .nothing);
         try s.body_writer.endChunked(.{});
     }
 };
 
-pub fn board(req: *std.http.Server.Request, options: Options) !void {
+pub fn getBoard(req: *std.http.Server.Request, options: Options) !void {
     var sse_buffer: [0x1000]u8 = undefined;
     var buffer: [0x1000]u8 = undefined;
-    var sse: SSE = try .start(req, &buffer, &sse_buffer);
+    var sse: Sse = try .start(req, &buffer, &sse_buffer);
 
     var b: Chess.Board = board: {
         try options.game.mutex.lock(options.io);
@@ -263,26 +284,39 @@ pub fn board(req: *std.http.Server.Request, options: Options) !void {
         break :board options.game.chess.activeBoard() orelse .init;
     };
     while (true) {
-        std.log.info("{f}", .{b});
-
         try sse.beginEvent(.datastar_patch_elements);
-        try sse.writer.writeAll("<div id='board'>");
+        try sse.writer.writeAll("<c-board id='main-board' data-on:click='$selected = (evt.target.tagName == `C-PIECE`) ? evt.target.id : (()=>{$from=evt.target.getAttribute(`from`);$to=evt.target.getAttribute(`to`);@get(`/move`)})()'>");
         for (0..8) |row_index| {
             for (0..8) |column_index| {
                 const pos: Chess.Board.Position = .{ .file = @intCast(column_index), .row = @intCast(row_index) };
                 const piece_char: u8 = blk: {
-                    const piece = b.getConst(pos) orelse break :blk ' ';
+                    const piece = b.getConst(pos) orelse continue;
                     break :blk piece.toChar();
                 };
-                try sse.writer.print("<div id='{s}' class='cell {s}'>{c}</div>", .{
+
+                try sse.writer.print(
+                    \\<c-piece id='{s}'>{c}
+                , .{
                     &pos.serialize(),
-                    if ((row_index + column_index) % 2 == 0) "odd" else "",
                     piece_char,
                 });
+                try sse.writer.writeAll(
+                    \\</c-piece>
+                );
             }
         }
-        try sse.writer.writeAll("</div>");
+        var moves_buffer: [Chess.Board.max_moves_from_position]Chess.Board.Move = undefined;
+        const moves = b.validMoves(&moves_buffer);
+        for (moves) |move| {
+            try sse.writer.print("<c-move from='{s}' to='{s}' data-show='$selected==`{s}`'>🟢</c-move>", .{
+                move.from.serialize(),
+                move.to.serialize(),
+                move.from.serialize(),
+            });
+        }
+        try sse.writer.writeAll("</c-board>");
         try sse.endEvent();
+
         try sse.beginEvent(.datastar_patch_elements);
         try sse.writer.print("<span id='fen'>{f}</span>", .{b});
         try sse.endEvent();
@@ -327,6 +361,8 @@ pub fn index(req: *std.http.Server.Request, options: Options) !void {
 
 const Signals = struct {
     fen: ?[]const u8 = null,
+    from: ?[]const u8 = null,
+    to: ?[]const u8 = null,
 
     const default: Signals = .{};
 };
@@ -365,79 +401,4 @@ fn handle(io: Io, gpa: std.mem.Allocator, state: *State, writer: *std.Io.Writer,
             });
         },
     }
-}
-
-fn openDoor(options: Options) !void {
-    const io = options.io;
-    const req = options.req;
-
-    var buffer: [0x1000]u8 = undefined;
-    var writer = try req.respondStreaming(&buffer, .{
-        .respond_options = .{
-            .extra_headers = &.{
-                .{ .name = "content-type", .value = "text/event-stream" },
-            },
-            .transfer_encoding = .chunked,
-        },
-    });
-    const first =
-        \\event: datastar-patch-elements
-        \\data: elements <div id="hal">
-        \\data: elements     I’m sorry, Dave. I’m afraid I can’t do that.
-        \\data: elements </div>
-        \\
-        \\
-    ;
-    try writer.writer.writeAll(first);
-    try writer.writer.flush();
-    try writer.flush();
-    try io.sleep(.fromSeconds(1), .awake);
-    const second =
-        \\event: datastar-patch-elements
-        \\data: elements <div id="hal">
-        \\data: elements     Waiting for an order...
-        \\data: elements </div>
-        \\
-        \\
-    ;
-    try writer.writer.writeAll(second);
-    try writer.writer.flush();
-    try writer.flush();
-    try writer.endChunked(.{});
-}
-
-const Error = error{ HttpExpectationFailed, WriteFailed, AccessDenied, AntivirusInterference, BadPathName, Canceled, ConnectionResetByPeer, DeviceBusy, FileBusy, FileLocksUnsupported, FileNotFound, FileTooBig, InputOutput, IsDir, LockViolation, NameTooLong, NetworkNotFound, NoDevice, NoSpaceLeft, NotDir, NotOpenForReading, OutOfMemory, PathAlreadyExists, PermissionDenied, PipeBusy, ProcessFdQuotaExceeded, SocketUnconnected, StreamTooLong, SymLinkLoop, SystemFdQuotaExceeded, SystemResources, Unexpected, WouldBlock };
-
-fn counter(options: Options) !void {
-    const io = options.io;
-    const req = options.req;
-    const query = options.query;
-
-    std.log.debug("{s}", .{query});
-    var buffer: [0x1000]u8 = undefined;
-    var writer = try req.respondStreaming(&buffer, .{
-        .respond_options = .{
-            .extra_headers = &.{
-                .{ .name = "content-type", .value = "text/event-stream" },
-            },
-            .transfer_encoding = .chunked,
-        },
-    });
-    while (true) {
-        try writer.writer.print(
-            \\event: datastar-patch-elements
-            \\data: elements <div id="timer">
-            \\data: elements     {d}ms
-            \\data: elements </div>
-            \\
-            \\
-        , .{
-            std.Io.Timestamp.now(io, .real).toSeconds(),
-        });
-        try writer.writer.flush();
-        try writer.flush();
-        try io.sleep(.fromSeconds(1), .awake);
-    }
-
-    try writer.endChunked(.{});
 }

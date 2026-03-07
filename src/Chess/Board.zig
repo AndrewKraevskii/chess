@@ -491,13 +491,17 @@ pub fn movesRaw(state: *const GameState, buffer: *[GameState.max_moves_from_posi
 }
 
 pub fn applyMove(state: *const GameState, move: MovePromotion) GameState {
+    return applyMoveFallible(state, move) catch unreachable;
+}
+
+pub fn applyMoveFallible(state: *const GameState, move: MovePromotion) !GameState {
     const turn = state.turn;
     const from = state.getConst(move.from) orelse unreachable;
     const to = state.getConst(move.to);
 
-    std.debug.assert(from.side == state.turn);
+    if (from.side != state.turn) return error.WrongSide;
     if (to) |t| {
-        std.debug.assert(t.side != from.side);
+        if (t.side == from.side) return error.EatingsSelfPiece;
     }
 
     const half_moves =
@@ -1076,11 +1080,11 @@ test "Pawn eats to the side" {
 test "Pawn en passant" {
     var buffer: [GameState.max_moves_from_position]Move = undefined;
 
-    // white peace en passants piece to the left.
+    // white piece en passants piece to the left.
     var white = try GameState.parse("8/8/8/3pP3/8/8/8/8 w - d6 0 1");
     try std.testing.expectEqual(2, white.movesRaw(&buffer).len);
 
-    // white peace en passants piece to the left but piece is block by black pi
+    // white piece en passants piece to the left but piece is block by black pi
     white = try GameState.parse("8/8/8/3pP3/8/8/8/8 w - d6 0 1");
     try std.testing.expectEqual(2, white.movesRaw(&buffer).len);
 }

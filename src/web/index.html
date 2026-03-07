@@ -5,32 +5,85 @@
 		<script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.8/bundles/datastar.js"></script>
 		<link href="./reset.css" rel="stylesheet">
 		<style>
-
-			#board {
-				--cell-width: 10px;
-				--grid-size: calc(8 * var(--cell-width));
+			c-board {
 				--white-color-cell: white;
 				--black-color-cell: gray;
+				--board-size: 90vmin;     /* board width/height */
+				--gap-size: 2px;          /* border between squares */
+				--cell-size: calc(var(--board-size) / 8); /* each square */
+				--font-size: calc(var(--cell-size) * 0.7); /* scale pieces slightly smaller than cell */
 				
 				display: grid;
-				grid-template-columns: 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr;
-				grid-template-rows: 1fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr;
-				width: var(--grid-size);
-				height: var(--grid-size);
-				.cell {
-					background-color: var(--white-color-cell);
-					width: var(--cell-width);
-					height: var(--cell-width);
-					border-color: black;
-					&.odd {
-						background-color: var(--black-color-cell);
-					}
+				grid-template-columns: repeat(8, 1fr);
+				grid-template-rows: repeat(8, 1fr);
+				aspect-ratio: 1;
+				
+				background:
+				conic-gradient(
+				var(--black-color-cell) 0.25turn, /* these zero gap once used to sizable gradient */
+				var(--white-color-cell) 0.25turn,
+				var(--white-color-cell) 0.5turn,
+				var(--black-color-cell) 0.5turn,
+				var(--black-color-cell) 0.75turn,
+				var(--white-color-cell) 0.75turn,
+				var(--white-color-cell) 1.0turn
+				) 0 0 / 25% 25%;
+				c-piece {
+					font-size: var(--font-size);
+					width: var(--cell-size);
+					text-align: center;
+					
+					&[id^="a"] { grid-column: 1; }
+					&[id^="b"] { grid-column: 2; }
+					&[id^="c"] { grid-column: 3; }
+					&[id^="d"] { grid-column: 4; }
+					&[id^="e"] { grid-column: 5; }
+					&[id^="f"] { grid-column: 6; }
+					&[id^="g"] { grid-column: 7; }
+					&[id^="h"] { grid-column: 8; }
+					
+					&[id$="1"] { grid-row: 1; }
+					&[id$="2"] { grid-row: 2; }
+					&[id$="3"] { grid-row: 3; }
+					&[id$="4"] { grid-row: 4; }
+					&[id$="5"] { grid-row: 5; }
+					&[id$="6"] { grid-row: 6; }
+					&[id$="7"] { grid-row: 7; }
+					&[id$="8"] { grid-row: 8; }
 				}
+				
+				c-move {
+					display: flex;
+					justify-content: center;
+					align-items: center;
+					font-size: var(--font-size);
+					
+					&[to^="a"] { grid-column: 1; }
+					&[to^="b"] { grid-column: 2; }
+					&[to^="c"] { grid-column: 3; }
+					&[to^="d"] { grid-column: 4; }
+					&[to^="e"] { grid-column: 5; }
+					&[to^="f"] { grid-column: 6; }
+					&[to^="g"] { grid-column: 7; }
+					&[to^="h"] { grid-column: 8; }
+					
+					/* ranks 1–8 */
+					&[to$="1"] { grid-row: 1; }
+					&[to$="2"] { grid-row: 2; }
+					&[to$="3"] { grid-row: 3; }
+					&[to$="4"] { grid-row: 4; }
+					&[to$="5"] { grid-row: 5; }
+					&[to$="6"] { grid-row: 6; }
+					&[to$="7"] { grid-row: 7; }
+					&[to$="8"] { grid-row: 8; }
+					
+					text-align: center;
+				}
+				
 			}
 			
 			main {
 				display: flex;
-				padding-top: 1rm;
 				flex-direction: column;
 				align-items: center;
 			}
@@ -40,10 +93,13 @@
 		<header>
 		</header>
 		<main>
-			<div id="board" data-init="@get('/board')">
-			</div>
+			<c-board id="main-board"
+			         data-init="@get('/board')"
+			>
+			</c-board>
 		</main>
 		<span id="fen"></span>
+		<div data-json-signals></div>
 		<input data-bind:fen type="text">
 		<button type="button" data-on:click="@get('/setboard')">Set fen</button>
 	</body>
