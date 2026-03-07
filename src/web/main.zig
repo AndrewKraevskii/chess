@@ -1,6 +1,7 @@
 const std = @import("std");
 const Io = std.Io;
 const Chess = @import("Chess");
+const Sse = @import("Sse.zig");
 
 const Options = struct {
     io: Io,
@@ -171,112 +172,11 @@ pub fn makeMove(req: *std.http.Server.Request, options: Options) !void {
     try getBoard(req, options);
 }
 
-const Sse = struct {
-    body_writer: std.http.BodyWriter,
-    writer: std.Io.Writer,
-    state: enum {
-        nothing,
-        started_event,
-        writing_event,
-    },
-
-    const Type = enum {
-        datastar_patch_elements,
-        datastar_patch_signals,
-
-        pub fn cebab(t: Type) []const u8 {
-            return switch (t) {
-                .datastar_patch_elements => "datastar-patch-elements",
-                .datastar_patch_signals => "datastar-patch-signals",
-            };
-        }
-    };
-
-    pub fn start(req: *std.http.Server.Request, buffer: []u8, sse_buffer: []u8) !Sse {
-        const streaming = try req.respondStreaming(buffer, .{
-            .respond_options = .{
-                .extra_headers = &.{
-                    .{ .name = "cache-control", .value = "no-cache" },
-                    .{ .name = "content-type", .value = "text/event-stream" },
-                    .{ .name = "connection", .value = "keep-alive" },
-                },
-                .transfer_encoding = .chunked,
-            },
-        });
-        return .{
-            .body_writer = streaming,
-            .writer = .{
-                .buffer = sse_buffer,
-                .vtable = &.{
-                    .drain = drain,
-                },
-            },
-            .state = .nothing,
-        };
-    }
-
-    fn beginEvent(sse: *Sse, event_type: Type) !void {
-        std.debug.assert(sse.state == .nothing);
-        try sse.body_writer.writer.print(
-            "event: {s}",
-            .{event_type.cebab()},
-        );
-        sse.state = .started_event;
-    }
-    const start_of_element_patch = "\ndata: elements ";
-
-    // TODO: name it something else
-    fn putSseFormatedString(writer: *std.Io.Writer, text: []const u8) !usize {
-        var lines = std.mem.splitScalar(u8, text, '\n');
-        var count: usize = 0;
-        while (lines.next()) |line| {
-            try writer.writeAll(line);
-            count += line.len;
-            if (lines.peek() != null) {
-                try writer.writeAll(start_of_element_patch);
-                count += start_of_element_patch.len;
-            }
-        }
-        return count;
-    }
-
-    fn drain(w: *Io.Writer, data: []const []const u8, splat: usize) error{WriteFailed}!usize {
-        const sse: *Sse = @fieldParentPtr("writer", w);
-        if (sse.state == .started_event) {
-            try sse.body_writer.writer.writeAll(start_of_element_patch);
-            sse.state = .writing_event;
-        }
-        var count: usize = 0;
-        count += try putSseFormatedString(&sse.body_writer.writer, w.buffered());
-        w.end = 0;
-        for (data[0 .. data.len - 1]) |datum| {
-            count += try putSseFormatedString(&sse.body_writer.writer, datum);
-        }
-        for (0..splat) |_| {
-            count += try putSseFormatedString(&sse.body_writer.writer, data[data.len - 1]);
-        }
-
-        return count;
-    }
-    pub fn endEvent(s: *Sse) !void {
-        std.debug.assert(s.state != .nothing);
-        try s.writer.flush();
-        try s.body_writer.writer.writeAll("\n\n");
-        try s.body_writer.writer.flush();
-        try s.body_writer.flush();
-        s.state = .nothing;
-    }
-
-    pub fn end(s: *Sse) !void {
-        std.debug.assert(s.state == .nothing);
-        try s.body_writer.endChunked(.{});
-    }
-};
-
 pub fn getBoard(req: *std.http.Server.Request, options: Options) !void {
     var sse_buffer: [0x1000]u8 = undefined;
     var buffer: [0x1000]u8 = undefined;
-    var sse: Sse = try .start(req, &buffer, &sse_buffer);
+    var responce = try req.respondStreaming(&buffer, Sse.std_http_options);
+    var sse: Sse = .init(&responce.writer, &sse_buffer);
 
     var b: Chess.Board = board: {
         try options.game.mutex.lock(options.io);
@@ -284,7 +184,7 @@ pub fn getBoard(req: *std.http.Server.Request, options: Options) !void {
         break :board options.game.chess.activeBoard() orelse .init;
     };
     while (true) {
-        try sse.beginEvent(.datastar_patch_elements);
+        try sse.beginEvent(.datastar_patch_elements, .{});
         try sse.writer.writeAll("<c-board id='main-board' data-on:click='$selected = (evt.target.tagName == `C-PIECE`) ? evt.target.id : (()=>{$from=evt.target.getAttribute(`from`);$to=evt.target.getAttribute(`to`);@get(`/move`)})()'>");
         for (0..8) |row_index| {
             for (0..8) |column_index| {
@@ -316,10 +216,12 @@ pub fn getBoard(req: *std.http.Server.Request, options: Options) !void {
         }
         try sse.writer.writeAll("</c-board>");
         try sse.endEvent();
+        try responce.flush();
 
-        try sse.beginEvent(.datastar_patch_elements);
+        try sse.beginEvent(.datastar_patch_elements, .{});
         try sse.writer.print("<span id='fen'>{f}</span>", .{b});
         try sse.endEvent();
+        try responce.flush();
 
         try options.game.mutex.lock(options.io);
         defer options.game.mutex.unlock(options.io);
@@ -327,7 +229,7 @@ pub fn getBoard(req: *std.http.Server.Request, options: Options) !void {
 
         b = options.game.chess.activeBoard() orelse .init;
     }
-    try sse.end();
+    try responce.endChunked(.{});
 }
 
 pub fn setboard(req: *std.http.Server.Request, options: Options) !void {
@@ -401,4 +303,8 @@ fn handle(io: Io, gpa: std.mem.Allocator, state: *State, writer: *std.Io.Writer,
             });
         },
     }
+}
+
+test {
+    _ = @import("Sse.zig");
 }
