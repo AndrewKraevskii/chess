@@ -2,15 +2,15 @@
     .name = .chessfrontend,
     .version = "0.0.0",
     .fingerprint = 0xcef3d0e039084302,
-    .minimum_zig_version = "0.16.0-dev.2619+c8f54a2f0",
+    .minimum_zig_version = "0.16.0-dev.2905+5d71e3051",
     .dependencies = .{
         .Stockfish = .{
             .url = "git+https://github.com/allyourcodebase/Stockfish#b68764ad7f299013b39b532691c8aa00956d236c",
             .hash = "stockfish-18.0.0-CcetzgedAAC7d3doeQkrkL_7zgF5YdpUytoI_FOtSKur",
         },
         .raylib = .{
-            .url = "git+https://github.com/AndrewKraevskii/raylib-zig.git?ref=update_to_zig_0.16.0-dev.2261+d6b3dd25a#0239852a4029d575e59e9d04182426ce74edcaa6",
-            .hash = "raylib_zig-5.6.0-dev-KE8RENhNBQAQvD7_nV8CGnOabKs7bO-S4b09R520bTYC",
+            .url = "git+https://github.com/AndrewKraevskii/raylib-zig?ref=update_to_zig#1c899b25f9429197dbc92b8210f116dfccdb62f4",
+            .hash = "raylib_zig-5.6.0-dev-KE8REFtOBQC6UyZjBjHWchFs7yYlbXb9FEfoWT3zwTt2",
         },
     },
     .paths = .{
