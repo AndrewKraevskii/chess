@@ -46,7 +46,7 @@ pub fn main(init: std.process.Init) !void {
         .chess = .init,
         .mutex = .init,
         .condition = .init,
-        .update_interval = .fromSeconds(1),
+        .update_interval = .fromMilliseconds(500),
     };
     try state.chess.setPosition(init.gpa, .init);
     var group: std.Io.Group = .init;
@@ -78,8 +78,7 @@ fn updateBoard(gpa: std.mem.Allocator, state: *State) !void {
             };
             const move = moves[random.random().uintLessThan(usize, moves.len)];
             const promotion: ?Chess.Board.Piece.Type = if (b.isPromotion(move)) .queen else null;
-            const next_board = b.applyMove(.{ .from = move.from, .to = move.to, .promotion = promotion });
-            state.chess.setNext(gpa, next_board) catch @panic("OOM");
+            state.chess.setNext(gpa, .{ .from = move.from, .to = move.to, .promotion = promotion }) catch @panic("OOM");
             break :sleep_time state.update_interval;
         };
         state.condition.broadcast(state.io);
@@ -163,11 +162,8 @@ pub fn makeMove(req: *std.http.Server.Request, options: Options) !void {
         const move: Chess.Board.Move = try .parse(&(options.query.from.?[0..2].* ++ options.query.to.?[0..2].*));
         const promotion: ?Chess.Board.Piece.Type = if (try board.isPromotionFallible(move)) .queen else null;
 
-        const new_board = board.applyMoveFallible(.{ .from = move.from, .to = move.to, .promotion = promotion }) catch break :apply_move;
-        try options.game.chess.setNext(
-            options.gpa,
-            new_board,
-        );
+        _ = board.applyMoveFallible(.{ .from = move.from, .to = move.to, .promotion = promotion }) catch break :apply_move;
+        try options.game.chess.setNext(options.gpa, .{ .from = move.from, .to = move.to, .promotion = promotion });
     }
     try getBoard(req, options);
 }
@@ -178,51 +174,78 @@ pub fn getBoard(req: *std.http.Server.Request, options: Options) !void {
     var responce = try req.respondStreaming(&buffer, Sse.std_http_options);
     var sse: Sse = .init(&responce.writer, &sse_buffer);
 
-    var b: Chess.Board = board: {
+    var position: Chess.Position = board: {
         try options.game.mutex.lock(options.io);
         defer options.game.mutex.unlock(options.io);
-        break :board options.game.chess.activeBoard() orelse .init;
+        break :board options.game.chess.activePosition() orelse .init;
     };
-    while (true) {
-        try sse.beginEvent(.datastar_patch_elements, .{
-            .use_view_transition = true,
-        });
-        try sse.writer.writeAll("<c-board id='main-board' data-on:click='$selected = (evt.target.tagName == `C-PIECE`) ? evt.target.id : (()=>{$from=evt.target.getAttribute(`from`);$to=evt.target.getAttribute(`to`);@get(`/move`)})()'>");
-        for (0..8) |row_index| {
-            for (0..8) |column_index| {
-                const pos: Chess.Board.Position = .{ .file = @intCast(column_index), .row = @intCast(row_index) };
-                const piece_char: u8 = blk: {
-                    const piece = b.getConst(pos) orelse continue;
-                    break :blk piece.toChar();
-                };
-
-                try sse.writer.print(
-                    \\<c-piece id='{s}'>{c}
-                , .{
-                    &pos.serialize(),
-                    piece_char,
-                });
-                try sse.writer.writeAll(
-                    \\</c-piece>
-                );
-            }
-        }
-        var moves_buffer: [Chess.Board.max_moves_from_position]Chess.Board.Move = undefined;
-        const moves = b.validMoves(&moves_buffer);
-        for (moves) |move| {
-            try sse.writer.print("<c-move from='{s}' to='{s}' data-show='$selected==`{s}`'>🟢</c-move>", .{
-                move.from.serialize(),
-                move.to.serialize(),
-                move.from.serialize(),
+    var move_id: u64 = 0;
+    while (true) : (move_id += 1) {
+        if (position.move) |move| update_move_source: {
+            const piece_char: u8 = blk: {
+                const piece = position.board.getConst(move.to) orelse break :update_move_source;
+                break :blk piece.toChar();
+            };
+            try sse.beginEvent(.datastar_patch_elements, .{});
+            try sse.writer.print(
+                \\<c-piece id='{s}' style='view-transition-name: moved_piece-{d}'>{c}
+            , .{
+                &move.from.serialize(),
+                move_id,
+                piece_char,
             });
+            try sse.writer.writeAll(
+                \\</c-piece>
+            );
+            try sse.endEvent();
         }
-        try sse.writer.writeAll("</c-board>");
-        try sse.endEvent();
-        try responce.flush();
 
-        try sse.beginEvent(.datastar_patch_elements, .{});
-        try sse.writer.print("<span id='fen'>{f}</span>", .{b});
-        try sse.endEvent();
+        {
+            try sse.beginEvent(.datastar_patch_elements, .{
+                .use_view_transition = true,
+            });
+            try sse.writer.writeAll("<c-board id='main-board' data-on:click='$selected = (evt.target.tagName == `C-PIECE`) ? evt.target.id : (()=>{$from=evt.target.getAttribute(`from`);$to=evt.target.getAttribute(`to`);@get(`/move`)})()'>");
+            for (0..8) |row_index| {
+                for (0..8) |column_index| {
+                    const pos: Chess.Board.Position = .{ .file = @intCast(column_index), .row = @intCast(row_index) };
+                    const piece_char: u8 = blk: {
+                        const piece = position.board.getConst(pos) orelse continue;
+                        break :blk piece.toChar();
+                    };
+
+                    const is_move_destination = if (position.move) |move| std.meta.eql(move.to, pos) else false;
+
+                    try sse.writer.print(
+                        \\<c-piece id='{s}'
+                    , .{
+                        &pos.serialize(),
+                    });
+                    if (is_move_destination) try sse.writer.print("style='view-transition-name: moved_piece-{d}'", .{move_id});
+                    try sse.writer.print(
+                        \\>{c}
+                    , .{piece_char});
+                    try sse.writer.writeAll(
+                        \\</c-piece>
+                    );
+                }
+            }
+            var moves_buffer: [Chess.Board.max_moves_from_position]Chess.Board.Move = undefined;
+            const moves = position.board.validMoves(&moves_buffer);
+            for (moves) |move| {
+                try sse.writer.print("<c-move from='{s}' to='{s}' data-show='$selected==`{s}`'>🟢</c-move>", .{
+                    move.from.serialize(),
+                    move.to.serialize(),
+                    move.from.serialize(),
+                });
+            }
+            try sse.writer.writeAll("</c-board>");
+            try sse.endEvent();
+        }
+        {
+            try sse.beginEvent(.datastar_patch_elements, .{});
+            try sse.writer.print("<span id='fen'>{f}</span>", .{position.board});
+            try sse.endEvent();
+        }
         try responce.flush();
 
         try options.game.mutex.lock(options.io);
@@ -230,7 +253,7 @@ pub fn getBoard(req: *std.http.Server.Request, options: Options) !void {
         try options.game.condition.wait(options.io, &options.game.mutex);
         std.log.info("woke up to draw board", .{});
 
-        b = options.game.chess.activeBoard() orelse .init;
+        position = options.game.chess.activePosition() orelse .init;
     }
     try responce.endChunked(.{});
 }

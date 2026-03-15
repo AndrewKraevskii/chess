@@ -8,9 +8,17 @@ const std = @import("std");
 pub const Board = @import("Chess/Board.zig");
 const Chess = @This();
 
-const Position = struct {
+pub const Position = struct {
     board: Board,
+    /// Move from which this board happened
+    move: ?Board.MovePromotion,
     previous: Id.Optional,
+
+    pub const init: Position = .{
+        .previous = .none,
+        .board = .init,
+        .move = null,
+    };
 
     pub const Id = enum(u32) {
         _,
@@ -46,6 +54,7 @@ pub const init: Chess = .{
 
 pub fn setPosition(chess: *Chess, gpa: std.mem.Allocator, board: Board) error{OutOfMemory}!void {
     const position: Position = .{
+        .move = null,
         .board = board,
         .previous = .none,
     };
@@ -68,6 +77,13 @@ pub fn activeBoard(chess: Chess) ?Board {
     return board.board;
 }
 
+pub fn activePosition(chess: Chess) ?Chess.Position {
+    const id = chess.current_position.unwrap() orelse return null;
+    const board = &chess.positions.keys()[@intFromEnum(id)];
+
+    return board.*;
+}
+
 pub fn undo(chess: *Chess) void {
     const id = chess.current_position.unwrap() orelse return;
     chess.current_position = (chess.positions.keys()[@intFromEnum(id)].previous.unwrap() orelse return).toOptional();
@@ -84,10 +100,12 @@ pub fn redo(chess: *Chess) void {
     }
 }
 
-pub fn setNext(chess: *Chess, gpa: std.mem.Allocator, board: Board) error{OutOfMemory}!void {
+pub fn setNext(chess: *Chess, gpa: std.mem.Allocator, move: Board.MovePromotion) error{OutOfMemory}!void {
+    const new_state = chess.activeBoard().?.applyMove(move);
     const position: Position = .{
-        .board = board,
+        .board = new_state,
         .previous = chess.current_position,
+        .move = move,
     };
     const gop = try chess.positions.getOrPut(gpa, position);
     chess.current_position = @enumFromInt(gop.index);

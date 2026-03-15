@@ -97,7 +97,7 @@ pub fn doChess(uci: *Uci, queue: *Io.Queue(GameState.MovePromotion), random: std
         if (!paused) {
             if (animation) |*anim| { // update
                 if (anim.progress >= 1) {
-                    try chess.setNext(gpa, board.applyMove(anim.move));
+                    try chess.setNext(gpa, anim.move);
                     if (play_mode == .pve) {} else {}
                     animation = null;
                 } else {
