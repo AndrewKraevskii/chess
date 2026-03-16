@@ -1,7 +1,9 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 	<head>
 		<title>Chess</title>
+		<meta charset="UTF-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
 		<script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.8/bundles/datastar.js"></script>
 		<link href="./reset.css" rel="stylesheet">
 		<style>
@@ -32,6 +34,7 @@
 					font-size: var(--font-size);
 					width: var(--cell-size);
 					text-align: center;
+					z-index: 1;
 					
 					&[id^="a"] { grid-column: 1; }
 					&[id^="b"] { grid-column: 2; }
@@ -57,6 +60,9 @@
 					justify-content: center;
 					align-items: center;
 					font-size: var(--font-size);
+					
+					z-index: 2;
+					opacity: 0.80;
 					
 					&[to^="a"] { grid-column: 1; }
 					&[to^="b"] { grid-column: 2; }
@@ -96,15 +102,12 @@
 	<body lang="en">
 		<header>
 		</header>
-		<main>
-			<c-board id="main-board"
-			         data-init="@get('/board')"
-			>
+		<main data-init="@get('/board/#big_text_room_id')">
+			<c-board id="main-board">
 			</c-board>
 		</main>
 		<span id="fen"></span>
 		<div data-json-signals></div>
 		<input data-bind:fen type="text">
-		<button type="button" data-on:click="@get('/setboard')">Set fen</button>
 	</body>
 </html>

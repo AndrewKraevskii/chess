@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>Chess</title>
+		<meta charset="UTF-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.8/bundles/datastar.js"></script>
+		<link href="./reset.css" rel="stylesheet">
+		<style>
+			main {
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+			}
+		</style>
+	</head>
+	<body lang="en">
+		<main>
+			<button type="button" data-on:click="@get('./rooms')">Search rooms</button>
+			<button type="button" data-on:click="@get('./create_room')">Create room</button>
+			<ul id="rooms" data-init="@get('./rooms')">
+			</ul>
+		</main>
+	</body>
+</html>

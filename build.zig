@@ -124,6 +124,13 @@ pub fn build(b: *std.Build) void {
         .root_module = web_mod,
     });
     b.installArtifact(web_exe);
+
+    b.getInstallStep().dependOn(&b.addInstallDirectory(.{
+        .source_dir = b.path("src/web/assets/"),
+        .install_dir = .bin,
+        .install_subdir = "assets",
+    }).step);
+
     const run_server_step = b.step("run-server", "run chess server");
     const run_server = b.addRunArtifact(web_exe);
     run_server_step.dependOn(&run_server.step);
