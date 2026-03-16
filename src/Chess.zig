@@ -140,7 +140,11 @@ test Chess {
             if (moves.len == 0) break;
             const move = moves[random.intRangeLessThan(usize, 0, moves.len)];
             const promotion: ?Board.Piece.Type = if (board.isPromotion(move)) .queen else null;
-            try chess.setNext(gpa, board.applyMove(.{ .from = move.from, .to = move.to, .promotion = promotion }));
+            try chess.setNext(gpa, .{ .from = move.from, .to = move.to, .promotion = promotion });
         }
     }
+}
+
+test {
+    _ = @import("./Chess/fen.zig");
 }

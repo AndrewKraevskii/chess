@@ -10,14 +10,17 @@ pub fn build(b: *std.Build) void {
 
     const chess = b.addModule("Chess", .{
         .root_source_file = b.path("src/Chess.zig"),
+        .target = target,
+        .optimize = optimize,
     });
     const uci = b.addModule("Uci", .{
         .root_source_file = b.path("src/Uci.zig"),
         .imports = &.{
             .{ .name = "Chess", .module = chess },
         },
+        .target = target,
+        .optimize = optimize,
     });
-
     const native_exe = b.createModule(.{
         .root_source_file = b.path("src/native/main.zig"),
         .target = target,
@@ -35,8 +38,6 @@ pub fn build(b: *std.Build) void {
     const exe = b.addExecutable(.{
         .name = "chessfrontend",
         .root_module = native_exe,
-        .use_llvm = use_llvm,
-        .use_lld = use_llvm,
     });
 
     const stockfish_dep = b.dependency("Stockfish", .{});
@@ -76,6 +77,8 @@ pub fn build(b: *std.Build) void {
     const exe_unit_tests = b.addTest(.{
         .filters = test_filters,
         .root_module = native_exe,
+        .use_llvm = use_llvm,
+        .use_lld = use_llvm,
     });
 
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
@@ -97,11 +100,25 @@ pub fn build(b: *std.Build) void {
             .{ .name = "Uci", .module = uci },
         },
     });
-    const web_unit_tests = b.addTest(.{
+    test_step.dependOn(&b.addRunArtifact(b.addTest(.{
         .filters = test_filters,
         .root_module = web_mod,
-    });
-    test_step.dependOn(&b.addRunArtifact(web_unit_tests).step);
+        .use_llvm = use_llvm,
+        .use_lld = use_llvm,
+    })).step);
+    test_step.dependOn(&b.addRunArtifact(b.addTest(.{
+        .filters = test_filters,
+        .root_module = chess,
+        .use_llvm = use_llvm,
+        .use_lld = use_llvm,
+    })).step);
+    test_step.dependOn(&b.addRunArtifact(b.addTest(.{
+        .filters = test_filters,
+        .root_module = uci,
+        .use_llvm = use_llvm,
+        .use_lld = use_llvm,
+    })).step);
+
     const web_exe = b.addExecutable(.{
         .name = "chess_server",
         .root_module = web_mod,

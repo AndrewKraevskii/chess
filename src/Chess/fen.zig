@@ -147,11 +147,13 @@ test parse {
 
 test "parse fuzz" {
     // fuzzing is broken on zig master https://codeberg.org/ziglang/zig/issues/30797
-    if (true) return error.SkipZigTest;
+    // if (true) return error.SkipZigTest;
 
     try std.testing.fuzz({}, struct {
-        fn foo(_: void, query: []const u8) anyerror!void {
-            _ = parse(query) catch |e| switch (e) {
+        fn foo(_: void, query: *std.testing.Smith) anyerror!void {
+            var buffer: [0x1000]u8 = undefined;
+            const len = query.slice(&buffer);
+            _ = parse(buffer[0..len]) catch |e| switch (e) {
                 error.InvalidFen => {},
             };
         }
